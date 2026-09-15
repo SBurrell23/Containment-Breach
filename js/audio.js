@@ -1,16 +1,19 @@
-/* Cave Typer — 100% synthesised audio. No samples, no files.
+/* Cave Typer — every sound effect synthesised at runtime, plus one scored loop.
  *
- * Bus layout:   [voice] -> sfx|ambience|music gain -> master gain -> compressor -> out
- * Everything is built from oscillators plus one shared white-noise buffer. */
+ * Bus layout:   [voice] -> sfx|music gain -> master gain -> compressor -> out
+ *
+ * Every effect — the rifle, the impacts, the deaths, the growls, the UI — is
+ * built from oscillators and one shared white-noise buffer. The only sampled
+ * audio is the music track, which rides the music bus alongside the
+ * synthesised drone that acts as its fallback. */
 (function (global) {
   'use strict';
   var CT = (global.CaveTyper = global.CaveTyper || {});
 
   var ctx = null;
-  var master, comp, busSfx, busAmb, busMusic;
+  var master, comp, busSfx, busMusic;
   var noiseBuf = null;
   var started = false;
-  var ambienceNodes = null;
   var musicState = null;      // synthesised drone (fallback / no-file mode)
   var trackState = null;      // the scored loop
   var enabled = true;
@@ -41,7 +44,6 @@
     master.connect(comp);
 
     busSfx = ctx.createGain(); busSfx.gain.value = 0.9; busSfx.connect(master);
-    busAmb = ctx.createGain(); busAmb.gain.value = 0.55; busAmb.connect(master);
     busMusic = ctx.createGain(); busMusic.gain.value = 0.45; busMusic.connect(master);
 
     // 2 s of white noise, reused by every noise-based voice.
@@ -67,7 +69,6 @@
     if (!ctx) return;
     master.gain.setTargetAtTime(mas, ctx.currentTime, 0.02);
     busSfx.gain.setTargetAtTime(s ? s.getNum('sfxVolume') : 0.9, ctx.currentTime, 0.02);
-    busAmb.gain.setTargetAtTime(s ? s.getNum('ambienceVolume') : 0.55, ctx.currentTime, 0.05);
     busMusic.gain.setTargetAtTime(mv, ctx.currentTime, 0.05);
   }
 
@@ -336,63 +337,6 @@
       noise(busSfx, 3.0, 0.15, 'lowpass', 700, 80, 0.6);
     },
 
-    /* ---- ambience -------------------------------------------------------- */
-
-    startAmbience: function () {
-      if (!ctx || ambienceNodes) return;
-      // Deep cave rumble: filtered noise with a slow wandering cutoff.
-      var src = ctx.createBufferSource();
-      src.buffer = noiseBuf; src.loop = true; src.playbackRate.value = 0.35;
-      var lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 180; lp.Q.value = 0.8;
-      var g = ctx.createGain(); g.gain.value = 0.55;
-      src.connect(lp); lp.connect(g); g.connect(busAmb);
-      src.start();
-
-      // Air / ventilation hiss.
-      var src2 = ctx.createBufferSource();
-      src2.buffer = noiseBuf; src2.loop = true; src2.playbackRate.value = 1.0;
-      var bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1800; bp.Q.value = 0.6;
-      var g2 = ctx.createGain(); g2.gain.value = 0.045;
-      src2.connect(bp); bp.connect(g2); g2.connect(busAmb);
-      src2.start();
-
-      // Wandering cutoff LFO on the rumble.
-      var lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 0.06;
-      var lfg = ctx.createGain(); lfg.gain.value = 70;
-      lfo.connect(lfg); lfg.connect(lp.frequency);
-      lfo.start();
-
-      // Irregular water drips.
-      var dripTimer = setInterval(function () {
-        if (!ctx || Math.random() > 0.55) return;
-        var d = panned(busAmb, Math.random() * 2 - 1);
-        var f = 900 + Math.random() * 1600;
-        tone(d, 'sine', f, f * 0.35, 0.16, 0.22);
-        noise(d, 0.05, 0.05, 'bandpass', f * 1.4, f * 0.6, 6);
-      }, 1700);
-
-      // Distant structural groans / far-off screams.
-      var groanTimer = setInterval(function () {
-        if (!ctx || Math.random() > 0.4) return;
-        var d = panned(busAmb, Math.random() * 2 - 1);
-        var f = 60 + Math.random() * 90;
-        tone(d, 'sawtooth', f, f * 0.6, 2.2 + Math.random() * 2, 0.06);
-        if (Math.random() < 0.3) tone(d, 'sine', 300 + Math.random() * 400, 180, 1.4, 0.03);
-      }, 6500);
-
-      ambienceNodes = { src: src, src2: src2, lfo: lfo, dripTimer: dripTimer, groanTimer: groanTimer };
-    },
-
-    stopAmbience: function () {
-      if (!ambienceNodes) return;
-      try { ambienceNodes.src.stop(); } catch (e) {}
-      try { ambienceNodes.src2.stop(); } catch (e) {}
-      try { ambienceNodes.lfo.stop(); } catch (e) {}
-      clearInterval(ambienceNodes.dripTimer);
-      clearInterval(ambienceNodes.groanTimer);
-      ambienceNodes = null;
-    },
-
     /* ---- music ------------------------------------------------------------
      * There are two music sources. The scored track is the bed; the synthesised
      * drone below is the fallback for when the file cannot be played, and is
@@ -411,12 +355,18 @@
       el.preload = 'auto';
       el.crossOrigin = 'anonymous';
 
-      trackState = { el: el, routed: false, gain: null, filter: null, failed: false, intensity: 0 };
+      var st = { el: el, routed: false, gain: null, filter: null,
+                 failed: false, disposed: false, intensity: 0 };
+      trackState = st;
 
+      // Bound to `st`, not to the module variable: tearing the track down sets
+      // el.src = '' which fires a *late* error event, by which point
+      // trackState is already null and the old code threw on it.
       el.addEventListener('error', function () {
-        trackState.failed = true;
+        if (st.disposed) return;              // teardown, not a real failure
+        st.failed = true;
         // Nothing scored is playing, so bring the synthesised drone up instead.
-        if (!musicState) Audio.startDrone();
+        if (trackState === st && !musicState) Audio.startDrone();
       });
 
       if (ctx && global.location.protocol !== 'file:') {
@@ -449,8 +399,9 @@
 
     stopTrack: function () {
       if (!trackState) return;
+      trackState.disposed = true;
       try { trackState.el.pause(); } catch (e) {}
-      try { trackState.el.src = ''; } catch (e) {}
+      try { trackState.el.removeAttribute('src'); trackState.el.load(); } catch (e) {}
       trackState = null;
     },
 
@@ -548,7 +499,6 @@
     },
 
     stopAll: function () {
-      Audio.stopAmbience();
       Audio.stopMusic();
     },
 

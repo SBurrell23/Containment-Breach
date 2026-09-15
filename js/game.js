@@ -110,7 +110,6 @@
     this.effects.setWeaponVisible(true);
 
     CT.Audio.init();
-    CT.Audio.startAmbience();
     CT.Audio.startMusic();
 
     this._buildDownMarkers();

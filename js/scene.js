@@ -9,6 +9,13 @@
 
   var FOG_COLOR = 0x05070a;
 
+  /* Both of these used to be player settings. They are fixed now because both
+   * are really level design rather than preference: the fog IS the draw
+   * distance, and widening the FOV shrinks every specimen and its word label at
+   * exactly the moment the game asks you to read them. */
+  var FOG_DENSITY = 0.023;
+  var FIELD_OF_VIEW = 68;
+
   function Stage(canvasHost) {
     this.host = canvasHost;
     this.renderer = null;
@@ -16,9 +23,9 @@
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(FOG_COLOR);
-    this.scene.fog = new THREE.FogExp2(FOG_COLOR, 0.023);
+    this.scene.fog = new THREE.FogExp2(FOG_COLOR, FOG_DENSITY);
 
-    this.camera = new THREE.PerspectiveCamera(68, 1, 0.1, 400);
+    this.camera = new THREE.PerspectiveCamera(FIELD_OF_VIEW, 1, 0.1, 400);
 
     /* Rig: rigRoot holds the station position, shakeNode holds transient
      * recoil/shake, camera hangs off that. Keeps shake from fighting movement. */
@@ -45,9 +52,7 @@
     S().onChange(function (k, v) {
       if (k === 'antialias') self.buildRenderer();
       else if (k === 'resolutionScale') self.resize();
-      else if (k === 'fov') { self.camera.fov = v; self.camera.updateProjectionMatrix(); }
       else if (k === 'shadows') self.applyShadowSetting();
-      else if (k === 'fogDensity') self.applyFog();
     });
   }
 
@@ -106,7 +111,7 @@
 
     this.applyShadowSetting();
     this.applyFog();
-    this.camera.fov = S().getNum('fov');
+    this.camera.fov = FIELD_OF_VIEW;
     this.camera.updateProjectionMatrix();
     this.resize();
   };
@@ -130,8 +135,7 @@
   };
 
   Stage.prototype.applyFog = function () {
-    var d = S().getNum('fogDensity');
-    this.scene.fog.density = 0.023 * d;
+    this.scene.fog.density = FOG_DENSITY;
   };
 
   Stage.prototype.resize = function () {

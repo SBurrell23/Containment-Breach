@@ -29,11 +29,6 @@
           hint: 'Additive halos on lights, muzzle flashes and bio-luminescence.' },
         { key: 'particles', label: 'Particle Density', type: 'range', def: 1.0,
           min: 0, max: 1.5, step: 0.1, fmt: function (v) { return Math.round(v * 100) + '%'; } },
-        { key: 'fogDensity', label: 'Cave Fog', type: 'range', def: 1.0,
-          min: 0.3, max: 1.6, step: 0.05, fmt: function (v) { return Math.round(v * 100) + '%'; },
-          hint: 'Thinner fog sees further but reveals the draw distance.' },
-        { key: 'fov', label: 'Field of View', type: 'range', def: 68,
-          min: 55, max: 95, step: 1, fmt: function (v) { return Math.round(v) + '°'; } },
         { key: 'lightFlicker', label: 'Flickering Lights', type: 'toggle', def: true }
       ]
     },
@@ -43,8 +38,6 @@
         { key: 'masterVolume', label: 'Master Volume', type: 'range', def: 0.8,
           min: 0, max: 1, step: 0.05, fmt: function (v) { return Math.round(v * 100) + '%'; } },
         { key: 'sfxVolume', label: 'Weapon / Monster SFX', type: 'range', def: 0.9,
-          min: 0, max: 1, step: 0.05, fmt: function (v) { return Math.round(v * 100) + '%'; } },
-        { key: 'ambienceVolume', label: 'Cave Ambience', type: 'range', def: 0.55,
           min: 0, max: 1, step: 0.05, fmt: function (v) { return Math.round(v * 100) + '%'; } },
         { key: 'musicVolume', label: 'Music', type: 'range', def: 0.4,
           min: 0, max: 1, step: 0.05, fmt: function (v) { return Math.round(v * 100) + '%'; },

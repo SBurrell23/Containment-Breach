@@ -153,10 +153,14 @@ meaningless for a run you walked away from.
 **Graphics** — detail preset (cave and specimen geometry density), render scale
 (0.5×–1×, the biggest performance lever), MSAA antialiasing (rebuilds the renderer),
 frame rate cap (30/60/120/144/unlimited), dynamic shadows, additive glow sprites,
-particle density, fog density, field of view, and light flicker.
+particle density, and light flicker.
 
-**Audio** — master, weapon/monster SFX, cave ambience, music, and keystroke clicks,
-all independent. The music is *Deep Cave Echoes* by steezyb, looped and mixed
+Fog density and field of view are deliberately *not* adjustable. Both are level design
+rather than preference: the fog is the draw distance, and a wider FOV shrinks every
+specimen and every word label at exactly the moment the game is asking you to read
+them.
+
+**Audio** — master, weapon/monster SFX, music, and keystroke clicks, all independent. The music is *Deep Cave Echoes* by steezyb, looped and mixed
 deliberately low so it sits behind the rifle and the specimens; it is routed through
 the same WebAudio graph as everything else, so it opens up from muffled to full-band
 as the run gets deeper. If the file cannot be played the game falls back to the
