@@ -34,6 +34,19 @@ jobs:
           # directories whose names begin with an underscore.
           touch _site/.nojekyll
 
+          # Pages serves assets with max-age=600. Without a per-deploy version on
+          # every local asset URL, a returning player can get a fresh index.html
+          # paired with ten-minute-old JavaScript — and these scripts depend on
+          # each other, so that mix does not merely look stale, it can break.
+          # Stamping the commit sha onto each reference makes every deploy a
+          # clean cache miss, atomically.
+          V="${GITHUB_SHA::8}"
+          # '#' as the s/// delimiter: the pattern's own alternations contain
+          # '|' and the paths contain '/', so either would terminate it early.
+          sed -i -E "s#(<(link|script)[^>]*(href|src)=\")((css|js)/[^\"]+)\"#\1\4?v=$V\"#g" _site/index.html
+          echo "stamped assets with v=$V"
+          grep -c "?v=$V" _site/index.html
+
       - name: Sanity-check the staged site
         run: |
           set -e
@@ -45,13 +58,23 @@ jobs:
           for f in grunts mids bosses; do
             test -f "_site/js/monsters/$f.js" || { echo "missing js/monsters/$f.js"; exit 1; }
           done
-          # Every script the page references must exist in the artifact.
-          grep -o 'src="[^"]*\.js"' _site/index.html | sed 's/src="//;s/"//' | while read -r src; do
-            case "$src" in
-              http*) continue ;;
-              *) test -f "_site/$src" || { echo "index.html references missing $src"; exit 1; } ;;
-            esac
+
+          # Every local asset the page references must exist in the artifact, and
+          # must carry a version stamp. This catches both a typo in a script tag
+          # and a stamping regex that mangled the paths it rewrote.
+          missing=0
+          unstamped=0
+          refs=0
+          for ref in $(grep -oE '(href|src)="(css|js)/[^"]+"' _site/index.html \
+                       | sed -E 's/^(href|src)="//; s/"$//'); do
+            refs=$((refs + 1))
+            case "$ref" in *"?v="*) ;; *) echo "UNSTAMPED: $ref"; unstamped=1 ;; esac
+            path="${ref%%\?*}"
+            [ -f "_site/$path" ] || { echo "MISSING: $path"; missing=1; }
           done
+          echo "checked $refs local asset references"
+          [ "$refs" -ge 18 ] || { echo "expected at least 18 asset refs, found $refs"; exit 1; }
+          [ "$missing" -eq 0 ] && [ "$unstamped" -eq 0 ]
           echo "staged $(find _site -type f | wc -l) files"
 
       - name: Check every script parses
