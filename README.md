@@ -123,6 +123,28 @@ message self-corrects on the next one instead of leaving the two sides drifting.
 
 ---
 
+## The compendium and the archives
+
+**SPECIMEN COMPENDIUM** is a catalogue of every specimen type, locked until you have
+actually met one, with a **live 3D preview** of the selected entry walking, idling and
+attacking. It is a real build from the same model code the game uses, driven through
+the same animation states — a compendium of procedurally generated creatures that
+showed static art would be lying about what you actually fought. Each entry records
+how many you have seen, how many you have killed, the deepest chamber you met one in,
+and when you first did. It owns its own small WebGL renderer, created when the screen
+opens and disposed when it closes, so it never contends with the game's.
+
+**ARCHIVES** logs every run that ended — solo or co-op — with all-time totals across
+the top: deepest chamber, best score and WPM, average WPM and accuracy, specimens
+killed, words fired, bosses, and total time spent underground. The best run is
+highlighted. Sixty runs are kept.
+
+The codex accrues during a run, so an abandoned descent still contributes discoveries;
+the archive only takes completed runs, because "how far did that one get" is
+meaningless for a run you walked away from.
+
+---
+
 ## Settings
 
 **SETTINGS** from the title screen or the pause menu. Everything persists to
@@ -209,9 +231,11 @@ js/difficulty.js        the curve, encounter planning, and a headless pacing sim
 js/scene.js             renderer, camera rig, lighting, quality plumbing
 js/cave.js              the procedural cave route + ruined-lab dressing, streamed in chunks
 js/effects.js           pooled tracers, impacts, gore, muzzle flash, viewmodel
+js/records.js           the specimen codex and the run archive, persisted to localStorage
 js/entities.js          monster registry, fallback models, and the live monster entity
 js/typing.js            targeting, matching, and typing stats
 js/ui.js                HUD, floating world labels, screen management
+js/codex.js             the compendium screen and its own preview renderer
 js/net.js               two-player peer-to-peer over two transports
 js/game.js              the game state machine and multiplayer sync
 js/main.js              bootstrap, menus, input routing, frame loop

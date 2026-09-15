@@ -10,7 +10,6 @@
   var lastTime = 0, nextSlot = 0, fpsAvg = 60;
   var paused = false;
   var running = false;
-  var BEST_KEY = 'cavetyper.best.v1';
 
   /* ---- fatal errors ------------------------------------------------------ */
 
@@ -27,26 +26,16 @@
 
   /* ---- best score -------------------------------------------------------- */
 
-  function loadBest() {
-    try { return JSON.parse(global.localStorage.getItem(BEST_KEY)) || null; }
-    catch (e) { return null; }
-  }
-  function saveBest(summary) {
-    var prev = loadBest();
-    if (prev && prev.depth >= summary.depth && prev.score >= summary.score) return false;
-    var next = {
-      depth: Math.max(summary.depth, prev ? prev.depth : 0),
-      score: Math.max(summary.score, prev ? prev.score : 0),
-      wpm: Math.max(Math.round(summary.wpm), prev ? prev.wpm : 0)
-    };
-    try { global.localStorage.setItem(BEST_KEY, JSON.stringify(next)); } catch (e) {}
-    return true;
-  }
   function paintBest() {
-    var b = loadBest();
+    var b = CT.Records.best();
+    var prog = CT.Records.codexProgress();
     $('best-readout').textContent = b
-      ? 'deepest chamber ' + b.depth + '  ·  best ' + b.score.toLocaleString() + '  ·  ' + b.wpm + ' wpm'
+      ? 'deepest chamber ' + b.depth + '  \u00b7  best ' + b.score.toLocaleString() + '  \u00b7  ' + b.wpm + ' wpm'
       : 'no descent on record';
+    var mc = $('model-count');
+    if (mc && prog.total) {
+      mc.textContent = prog.found + ' of ' + prog.total + ' specimen types catalogued';
+    }
   }
 
   /* ---- boot -------------------------------------------------------------- */
@@ -63,10 +52,6 @@
     if (dropped.length && global.console) {
       console.warn('[CaveTyper] dropped malformed monster definitions:', dropped.join(', '));
     }
-    var counts = CT.MonsterRegistry.summary();
-    $('model-count').textContent =
-      counts.grunt + counts.mid + counts.boss + ' specimen types archived  (' +
-      counts.grunt + ' minor · ' + counts.mid + ' major · ' + counts.boss + ' apex)';
 
     try {
       stage = new CT.Stage($('stage'));
@@ -205,7 +190,13 @@
   function onEscape() {
     var scr = UI.Screens.current;
     if (scr === 'options') { closeOptions(); return; }
-    if (scr === 'howto' || scr === 'mp') { CT.Audio.uiBack(); UI.Screens.show('title'); return; }
+    if (scr === 'howto' || scr === 'mp' || scr === 'codex' || scr === 'archive') {
+      CT.Audio.uiBack();
+      CT.Codex.stop();
+      UI.Screens.show('title');
+      paintBest();
+      return;
+    }
     if (scr === 'pause') { resume(); return; }
     if (scr) return;
 
@@ -220,8 +211,17 @@
     'play-solo': playSolo,
     'open-mp': function () { CT.Audio.uiClick(); UI.Screens.show('mp'); },
     'open-options': openOptions,
+    'open-codex': openCodex,
+    'open-archive': openArchive,
+    'clear-archive': clearArchive,
     'open-howto': function () { CT.Audio.uiClick(); UI.Screens.show('howto'); },
-    'back-title': function () { CT.Audio.uiBack(); leaveMp(); UI.Screens.show('title'); paintBest(); },
+    'back-title': function () {
+      CT.Audio.uiBack();
+      CT.Codex.stop();          // release the compendium's GL context
+      leaveMp();
+      UI.Screens.show('title');
+      paintBest();
+    },
     'close-options': closeOptions,
     'resume': resume,
     'quit-run': quitRun,
@@ -349,7 +349,8 @@
 
   function showGameOver(summary) {
     paused = false;
-    var isBest = saveBest(summary);
+    var isBest = CT.Records.isBest(summary);
+    CT.Records.addRun(summary);
     $('over-title').textContent = summary.coop ? 'BOTH OPERATIVES LOST' : 'CONTAINMENT LOST';
     $('over-depth').innerHTML = '<b>' + summary.deepest + '</b>CHAMBERS DEEP';
 
@@ -373,6 +374,73 @@
     $('over-best').textContent = (isBest ? 'NEW PERSONAL BEST — ' : '') + summary.reason;
     $('over-best').className = 'status' + (isBest ? ' ok' : '');
     UI.Screens.show('over');
+  }
+
+  /* ---- compendium + archive ---------------------------------------------- */
+
+  function openCodex() {
+    CT.Audio.uiClick();
+    UI.Screens.show('codex');
+    // Rendered after the screen is visible so the viewport has a real size to
+    // size the WebGL canvas and camera against.
+    var prog = CT.Codex.render($('codex-viewport'), $('codex-grid'), $('codex-info'));
+    $('codex-progress').textContent = prog.found + ' / ' + prog.total + ' catalogued';
+  }
+
+  function openArchive() {
+    CT.Audio.uiClick();
+    UI.Screens.show('archive');
+    paintArchive();
+  }
+
+  function paintArchive() {
+    var t = CT.Records.allTime();
+    var list = CT.Records.runs();
+
+    var cells = [
+      ['runs', t.runs, false],
+      ['deepest', t.bestDepth ? 'CH ' + t.bestDepth : '\u2013', true],
+      ['best score', t.bestScore ? t.bestScore.toLocaleString() : '\u2013', true],
+      ['best wpm', t.bestWpm || '\u2013', true],
+      ['avg wpm', t.avgWpm || '\u2013', false],
+      ['avg acc', t.runs ? t.avgAcc + '%' : '\u2013', false],
+      ['specimens', t.totalKills.toLocaleString(), false],
+      ['words fired', t.totalWords.toLocaleString(), false],
+      ['bosses', t.totalBosses, false],
+      ['time in cave', CT.Records.fmtDuration(t.totalSecs), false]
+    ];
+    $('archive-alltime').innerHTML = cells.map(function (c) {
+      return '<div class="stat' + (c[2] ? ' hl' : '') + '"><div class="sv">' + c[1] +
+             '</div><div class="sl">' + c[0].toUpperCase() + '</div></div>';
+    }).join('');
+
+    if (!list.length) {
+      $('archive-list').innerHTML =
+        '<div class="ar-empty">Nothing on file yet. Every descent that ends is logged here — ' +
+        'solo or co-op, however badly it went.</div>';
+      return;
+    }
+
+    $('archive-list').innerHTML = list.map(function (r) {
+      var isBest = r.depth === t.bestDepth && r.score === t.bestScore;
+      return '<div class="ar-row' + (r.coop ? ' coop' : '') + (isBest ? ' best' : '') + '">' +
+        '<span class="ar-when">' + CT.Records.fmtDate(r.t) + '</span>' +
+        '<span class="ar-mode">' + (r.coop ? 'CO-OP' : 'SOLO') + '</span>' +
+        '<span class="ar-cell">' + r.depth + '<small>chamber</small></span>' +
+        '<span class="ar-cell">' + r.score.toLocaleString() + '<small>score</small></span>' +
+        '<span class="ar-cell">' + r.wpm + '<small>wpm</small></span>' +
+        '<span class="ar-cell">' + r.kills + '<small>kills</small></span>' +
+        '</div>';
+    }).join('');
+  }
+
+  function clearArchive() {
+    if (!CT.Records.runs().length) return;
+    if (!global.confirm('Delete every logged run? The specimen compendium is kept.')) return;
+    CT.Audio.uiBack();
+    CT.Records.clearRuns();
+    paintArchive();
+    paintBest();
   }
 
   /* ---- multiplayer UI ---------------------------------------------------- */

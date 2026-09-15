@@ -453,6 +453,9 @@
       if (this.delay > 0) return;
       this.active = true;
       this.group.visible = true;
+      // Catalogued on arrival rather than at encounter planning: a specimen
+      // queued for a wave the player never lived to see is not "encountered".
+      if (CT.Records) CT.Records.noteSeen(this.def.id, (this.world.encounterIndex || 0) + 1);
     }
 
     if (this.dying) {

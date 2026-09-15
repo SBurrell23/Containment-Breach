@@ -125,6 +125,7 @@
     CT.Audio.setMusicIntensity(0);
     this.hud.setBoss(null);
     this.effects.setWeaponVisible(false);
+    if (CT.Records) CT.Records.flush();
     if (this.net.isHost() && this.net.isMultiplayer()) {
       this.net.send({ t: 'over', reason: reason, score: this.score, index: this.encounterIndex });
     }
@@ -158,6 +159,7 @@
     this.hud.setBoss(null);
     this.effects.setWeaponVisible(false);
     CT.Audio.stopAll();
+    if (CT.Records) CT.Records.flush();
     if (this.net.isMultiplayer()) { this.net.send({ t: 'bye' }); this.net.close(); }
   };
 
@@ -308,6 +310,10 @@
     else this.stage.addShake(0.05);
     this.effects.tracer(from, hitPos, color);
     this.effects.impact(hitPos, m.gooColor);
+
+    if (killed && slot === this.mySlot && CT.Records) {
+      CT.Records.noteKill(m.def.id, this.encounterIndex + 1);
+    }
 
     if (killed) {
       var center = m.headWorld(new THREE.Vector3());
@@ -604,6 +610,8 @@
     CT.Audio.setMusicCombat(false);
     this.hud.setBoss(null);
     this.hud.say(boss ? 'SPECIMEN NEUTRALISED' : 'CHAMBER CLEAR', false, 1300);
+    // Between chambers is the one moment a localStorage write cannot be felt.
+    if (CT.Records) CT.Records.flush();
 
     if (this.net.isMultiplayer() && this.net.isHost()) {
       this.net.send({ t: 'clear', index: this.encounterIndex, hp: this.players.map(function (x) { return x.hp; }) });

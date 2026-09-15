@@ -71,14 +71,20 @@
           <div class="logo-rule"></div>
           <p class="tagline">
             The containment field failed at 03:14. Everything in the vivarium got out.
-            Your rifle fires on dictation. <b>Type the word over a specimen to shoot it.</b>
+            Your rifle fires on dictation.
           </p>
         </div>
         <div class="menu">
           <button class="btn primary" data-action="play-solo">SOLO DESCENT</button>
           <button class="btn" data-action="open-mp">TWO-PLAYER LINK</button>
-          <button class="btn" data-action="open-options">SETTINGS</button>
-          <button class="btn ghost" data-action="open-howto">HOW TO PLAY</button>
+          <div class="menu-split">
+            <button class="btn" data-action="open-codex">SPECIMEN COMPENDIUM</button>
+            <button class="btn" data-action="open-archive">ARCHIVES</button>
+          </div>
+          <div class="menu-split">
+            <button class="btn" data-action="open-options">SETTINGS</button>
+            <button class="btn ghost" data-action="open-howto">HOW TO PLAY</button>
+          </div>
         </div>
         <div class="foot">
           <span id="model-count">loading specimen archive…</span>
@@ -208,6 +214,33 @@
       </div>
     </section>
 
+    <!-- Specimen compendium -->
+    <section id="screen-codex" class="screen">
+      <div class="panel wide">
+        <h2>SPECIMEN COMPENDIUM</h2>
+        <div id="codex-viewport"></div>
+        <div id="codex-info" class="cx-info"></div>
+        <div class="scroller"><div id="codex-grid" class="cx-grid"></div></div>
+        <div class="menu row">
+          <span id="codex-progress" class="status"></span>
+          <button class="btn" data-action="back-title">BACK</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Run archive -->
+    <section id="screen-archive" class="screen">
+      <div class="panel wide">
+        <h2>ARCHIVES</h2>
+        <div id="archive-alltime" class="stats-grid"></div>
+        <div class="scroller"><div id="archive-list" class="ar-list"></div></div>
+        <div class="menu row">
+          <button class="btn ghost small" data-action="clear-archive">CLEAR ARCHIVE</button>
+          <button class="btn" data-action="back-title">BACK</button>
+        </div>
+      </div>
+    </section>
+
     <!-- Loading -->
     <section id="screen-loading" class="screen">
       <div class="panel narrow center">
@@ -265,9 +298,11 @@
 <script src="js/monsters/mids.js"></script>
 <script src="js/monsters/bosses.js"></script>
 
+<script src="js/records.js"></script>
 <script src="js/entities.js"></script>
 <script src="js/typing.js"></script>
 <script src="js/ui.js"></script>
+<script src="js/codex.js"></script>
 <script src="js/net.js"></script>
 <script src="js/game.js"></script>
 <script src="js/main.js"></script>
