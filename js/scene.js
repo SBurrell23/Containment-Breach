@@ -57,24 +57,34 @@
   }
 
   Stage.prototype.buildLights = function () {
-    // Barely-there fill so silhouettes never go fully black.
-    this.ambient = new THREE.AmbientLight(0x1b2430, 0.62);
+    // Barely-there fill so silhouettes never go fully black. "Barely" is meant
+    // literally: everything beyond the lamp's pool should be a shape moving in
+    // the dark, not a lit model. Raising these is the fastest way to make the
+    // cave feel like a corridor with the lights on.
+    this.ambient = new THREE.AmbientLight(0x161f2b, 0.36);
     this.scene.add(this.ambient);
 
-    this.hemi = new THREE.HemisphereLight(0x2b3a4a, 0x0a0d10, 0.34);
+    this.hemi = new THREE.HemisphereLight(0x22303e, 0x07090c, 0.17);
     this.scene.add(this.hemi);
 
-    // The player's lamp. Attached to the camera so it always points where you look.
-    // It sits AHEAD of the viewmodel: at the camera origin it is close enough to
-    // the weapon to blow it out to solid white.
-    this.lamp = new THREE.SpotLight(0xd7e9ff, 1.25, 78, Math.PI * 0.30, 0.75, 0.9);
+    // The player's lamp. Attached to the camera so it always points where you
+    // look. It sits AHEAD of the viewmodel: at the camera origin it is close
+    // enough to the weapon to blow it out to solid white.
+    //
+    // A tighter cone that reaches less far: the point is a pool of light with
+    // a definite edge, and a tunnel that goes black before the fog would have
+    // hidden it anyway. Specimens spawn 17-27 units out, inside the throw, so
+    // they still read — they just arrive out of darkness.
+    this.lampBase = 1.04;
+    this.lamp = new THREE.SpotLight(0xc9dcf2, this.lampBase, 52, Math.PI * 0.275, 0.88, 1.0);
     this.lamp.position.set(0, 0.1, -2.1);
     this.lamp.target.position.set(0, -0.15, -14);
     this.camera.add(this.lamp);
     this.camera.add(this.lamp.target);
 
     // A warm bounce right at the station so the player's own space reads.
-    this.stationLight = new THREE.PointLight(0xff9a5c, 0.6, 16, 1.6);
+    this.stationBase = 0.42;
+    this.stationLight = new THREE.PointLight(0xff8a4c, this.stationBase, 14, 1.7);
     this.stationLight.position.set(0, 2.4, 1.2);
     this.rigRoot.add(this.stationLight);
 
@@ -102,7 +112,7 @@
     this.renderer.setClearColor(FOG_COLOR, 1);
     this.renderer.outputEncoding = THREE.sRGBEncoding;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 0.82;
+    this.renderer.toneMappingExposure = 0.76;
     this.canvas = this.renderer.domElement;
     this.canvas.id = 'gl';
 
@@ -211,11 +221,12 @@
     this.alertLight.intensity = Math.max(0, this.alertLight.intensity - dt * 7);
 
     if (S().get('lightFlicker')) {
-      this.stationLight.intensity = 0.6 + Math.sin(time * 13.7) * 0.05 + Math.sin(time * 41.3) * 0.025;
-      this.lamp.intensity = 1.25 + Math.sin(time * 9.1) * 0.05;
+      this.stationLight.intensity = this.stationBase * (1 + Math.sin(time * 13.7) * 0.09 +
+                                                            Math.sin(time * 41.3) * 0.045);
+      this.lamp.intensity = this.lampBase * (1 + Math.sin(time * 9.1) * 0.05);
     } else {
-      this.stationLight.intensity = 0.6;
-      this.lamp.intensity = 1.25;
+      this.stationLight.intensity = this.stationBase;
+      this.lamp.intensity = this.lampBase;
     }
   };
 

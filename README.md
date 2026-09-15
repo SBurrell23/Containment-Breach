@@ -270,8 +270,12 @@ js/monsters/_SPEC.md    the contract every monster model is built against
 js/monsters/grunts.js   5 minor specimens
 js/monsters/mids.js     5 major specimens
 js/monsters/bosses.js   4 apex specimens
+js/wordbank.js          GENERATED word list - do not edit by hand
 tools/serve.js          no-cache static dev server
-tools/check-pacing.js   headless difficulty curve check
+tools/build-wordbank.js mines a dictionary by theme to regenerate js/wordbank.js
+tools/check-dictionary.js  every word the game can show, checked against a dictionary
+tools/check-pacing.js   headless difficulty curve check, from the tuning constants
+tools/check-encounters.js  the same check, but playing real planned encounters
 tools/check-words.js    checks the generated words against the length model
 ```
 
@@ -303,9 +307,24 @@ node tools/check-pacing.js
 node tools/check-words.js
 ```
 
-`check-pacing.js` is an offline approximation and runs optimistic — it does not model
-a player who always shoots the closest thing first. Treat it as a fast sanity check
-on the shape of the curve, and trust the in-engine numbers for absolute values.
+`check-pacing.js` works from the tuning constants alone: every specimen walks at the
+scheduled speed and bites for the scheduled damage. That was the whole story until
+specimens had traits, and it is still the fastest way to see the shape of the curve.
+
+```bash
+node tools/check-encounters.js          # or: node tools/check-encounters.js 100 1
+```
+
+`check-encounters.js` is the one to trust for absolute numbers. It plans real
+chambers with `planEncounter` and runs them forward on a fixed timestep: the player
+types at a constant rate at whatever is about to reach them, specimens bite on their
+own timers once they arrive, and splitters put their offspring in the room at the
+moment they die. `--flat` strips every trait back to 1, which separates "traits
+changed the difficulty" from "this model is stricter than the other one".
+
+Traits are meant to be pacing-neutral — they change what a room *is*, not how hard
+it is — so the two should agree, and `--flat` should agree with both. If a trait
+change moves the curve, that is the signal to fix the trait, not the curve.
 
 For real numbers, drive the actual game. `window.CaveTyper._debug()` returns
 `{ stage, game }`, and stepping `game.update(dt)` by hand plays the game as fast as

@@ -42,6 +42,85 @@
     return t;
   }
 
+  /* Grime for the rock, as a tiling texture rather than as vertex colour.
+   *
+   * The wall mesh has a vertex roughly every two and a half units, so anything
+   * finer than about a five-unit wavelength cannot be expressed in vertex
+   * colour at all — it just aliases into blotches. That is most of what makes
+   * untextured low-poly rock look moulded: the large shapes are stone, and
+   * every surface between them is a perfectly smooth gradient. So the broad
+   * marks stay in the vertex colours, where they belong, and the close-range
+   * dirt lives here, where mesh density is irrelevant.
+   *
+   * Used as both map and bumpMap: the same field that darkens the rock also
+   * pushes it around, which is what stops it reading as a decal printed on
+   * plastic. Generated once and shared by every wall chunk.
+   */
+  function grimeTexture() {
+    if (_tex.grime) return _tex.grime;
+    var N = 256;
+    var c = document.createElement('canvas');
+    c.width = c.height = N;
+    var g = c.getContext('2d');
+    var img = g.createImageData(N, N);
+    var rng = new CT.Rng(0x9e3779b9);
+
+    /* Value noise on a wrapping lattice, so the tile has no seam. */
+    function lattice(size) {
+      var a = new Float32Array(size * size);
+      for (var i = 0; i < a.length; i++) a[i] = rng.next();
+      return a;
+    }
+    function sample(a, size, u, v) {
+      var x = u * size, y = v * size;
+      var x0 = Math.floor(x), y0 = Math.floor(y);
+      var fx = x - x0, fy = y - y0;
+      fx = fx * fx * (3 - 2 * fx);
+      fy = fy * fy * (3 - 2 * fy);
+      var x1 = (x0 + 1) % size, y1 = (y0 + 1) % size;
+      x0 = ((x0 % size) + size) % size; y0 = ((y0 % size) + size) % size;
+      var s00 = a[y0 * size + x0], s10 = a[y0 * size + x1];
+      var s01 = a[y1 * size + x0], s11 = a[y1 * size + x1];
+      return (s00 * (1 - fx) + s10 * fx) * (1 - fy) + (s01 * (1 - fx) + s11 * fx) * fy;
+    }
+
+    var oct = [4, 8, 16, 32, 64].map(lattice);
+    var sizes = [4, 8, 16, 32, 64];
+    var amps = [0.34, 0.26, 0.20, 0.13, 0.07];
+    // Stretched vertically so the dirt reads as having run downhill.
+    var drip = lattice(48);
+
+    for (var y = 0; y < N; y++) {
+      for (var x = 0; x < N; x++) {
+        var u = x / N, v = y / N;
+        var n = 0;
+        for (var o = 0; o < oct.length; o++) n += amps[o] * sample(oct[o], sizes[o], u, v);
+        // Vertical streaking: same field, squashed along v.
+        var st = sample(drip, 48, u, v * 0.22);
+        n = n * 0.78 + st * 0.22;
+        // Centred high so the map modulates the rock rather than halving its
+        // albedo: the cave is meant to be dark because the lamp is weak, not
+        // because every surface has been painted grey. The contrast stretch is
+        // what makes the dark end read as dirt rather than as shading.
+        var val = 0.70 + (n - 0.5) * 1.25;
+        if (val < 0.08) val = 0.08; else if (val > 1) val = 1;
+        // A scatter of dark pits and pale mineral flecks.
+        var r = rng.next();
+        if (r < 0.014) val *= 0.45;
+        else if (r > 0.992) val = Math.min(1, val * 1.9);
+        var b = Math.round(val * 255);
+        var k = (y * N + x) * 4;
+        img.data[k] = b; img.data[k + 1] = b; img.data[k + 2] = b; img.data[k + 3] = 255;
+      }
+    }
+    g.putImageData(img, 0, 0);
+    var t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.anisotropy = 4;
+    _tex.grime = t;
+    return t;
+  }
+
   var SIGN_TEXTS = [
     ['BIOHAZARD', 'LEVEL 4'], ['NO ENTRY', 'SECTOR 7'], ['DECON', 'REQUIRED'],
     ['SPECIMEN', 'TRANSIT'], ['QUARANTINE', 'IN EFFECT'], ['CRYO', 'STORAGE'],
@@ -85,10 +164,26 @@
     var rockH = rng.range(0.55, 0.72);            // blue-grey through to slate
     var glowChoice = rng.next();
     var glow = glowChoice < 0.45 ? 0x7dff4a : (glowChoice < 0.75 ? 0x36e0ff : 0xd44bff);
+    // Rock on its own reads as moulded plastic: one hue, one value, and every
+    // facet the same. What sells stone is that several different things have
+    // happened to it. These are those things, each laid down by its own noise
+    // field at its own scale in _buildWalls.
+    var spill = new THREE.Color(glow);
+    spill.offsetHSL(0, -0.42, -0.30);
     return {
       rock: new THREE.Color().setHSL(rockH, rng.range(0.06, 0.16), rng.range(0.12, 0.2)),
       rockDark: new THREE.Color().setHSL(rockH, rng.range(0.08, 0.2), rng.range(0.05, 0.09)),
       moss: new THREE.Color().setHSL(rng.range(0.22, 0.32), 0.45, 0.16),
+      // Iron bleeding out of the rock: warm, and the strongest colour break.
+      rust: new THREE.Color().setHSL(rng.range(0.035, 0.075), rng.range(0.34, 0.52), rng.range(0.11, 0.17)),
+      // Dried mineral crust where water ran and stopped running.
+      crust: new THREE.Color().setHSL(rng.range(0.08, 0.13), rng.range(0.07, 0.15), rng.range(0.27, 0.36)),
+      // Wet seepage: nearly black, slightly colder than the rock around it.
+      seep: new THREE.Color().setHSL((rockH + 0.04) % 1, rng.range(0.16, 0.3), rng.range(0.028, 0.05)),
+      // Floor silt — trodden dirt, warmer and duller than the walls.
+      silt: new THREE.Color().setHSL(rng.range(0.06, 0.11), rng.range(0.10, 0.20), rng.range(0.075, 0.115)),
+      // Whatever leaked out of the vats, pooled at the bottom of the tunnel.
+      spill: spill,
       glow: glow,
       glow2: glowChoice < 0.45 ? 0x36e0ff : 0x7dff4a,
       metal: 0x60666d,
@@ -115,6 +210,9 @@
     this.stage.scene.fog.color.copy(this.stage.scene.background);
 
     this._initPath();
+
+    // Deferred prop-construction jobs, drained a few per frame by pump().
+    this._queue = [];
 
     this.dust = null;
     this._buildDust();
@@ -296,10 +394,16 @@
     var q = this.quality();
     var s0 = ci * CHUNK_LEN;
     var radial = q.radial;
-    var verts = [], colors = [], indices = [];
+    var verts = [], colors = [], uvs = [], indices = [];
+    // One grime tile every ~5 units in both directions. v is driven by absolute
+    // arc length, so the pattern runs continuously through a chunk seam.
+    var UV_TILE = 5.0;
     var pal = this.palette;
     var cRock = pal.rock, cDark = pal.rockDark, cMoss = pal.moss;
+    var cRust = pal.rust, cCrust = pal.crust, cSeep = pal.seep;
+    var cSilt = pal.silt, cSpill = pal.spill;
     var tmp = new THREE.Color();
+    var N = this.noise;
     var frame = { x: 0, z: 0, h: 0, rx: 1, rz: 0 };
 
     // Rings are swept along the route and oriented to its local frame, so the
@@ -340,13 +444,50 @@
         }
 
         verts.push(x, y, z);
+        uvs.push((a / (Math.PI * 2)) * (2 * Math.PI * r) / UV_TILE, sa / UV_TILE);
 
-        // vertex colour: darker high up, mossy near the floor line, streaks
+        /* Vertex colour. Five noise fields at deliberately different scales,
+         * because grime at one frequency just looks like a texture: broad
+         * strata that read from across the chamber, mid-scale staining that
+         * reads at conversation distance, and a fine grain that only does
+         * anything up close, where it is the thing that stops a flat-shaded
+         * facet looking moulded. Each layer is masked so it lands where that
+         * kind of mark would actually be — rust high and dry, seepage in the
+         * runs, crust and silt at the bottom. */
         var up = CT.clamp(y / 9, 0, 1);
-        var streak = this.noise.fbm3(x * 0.09, y * 0.09, z * 0.09, 3);
-        tmp.copy(cRock).lerp(cDark, up * 0.75 + streak * 0.25);
-        var mossAmt = CT.clamp((0.6 - Math.abs(y - 0.4) * 0.3) * (streak - 0.42) * 2.4, 0, 0.55);
-        tmp.lerp(cMoss, mossAmt);
+        var low = CT.clamp((1.1 - y) / 2.2, 0, 1);          // 1 at the floor line
+
+        var strata = N.fbm3(x * 0.032, y * 0.115, z * 0.032, 3);
+        var streak = N.fbm3(x * 0.09, y * 0.09, z * 0.09, 3);
+        var stain  = N.fbm3(x * 0.16 + 41.3, y * 0.06, z * 0.16, 3);
+        var damp   = N.fbm3(x * 0.055 + 17.7, y * 0.24, z * 0.055, 3);
+        // Coarse mottling only — anything finer than the vertex spacing is the
+        // grime texture's job now.
+        var grain  = N.fbm3(x * 0.19, y * 0.19, z * 0.19, 2);
+
+        tmp.copy(cRock).lerp(cDark, up * 0.58 + strata * 0.30);
+
+        // Iron staining: warm, blotchy, and thinner where water still runs.
+        tmp.lerp(cRust, CT.clamp((stain - 0.58) * 2.1, 0, 0.33) * (0.45 + 0.55 * (1 - low)));
+        // Wet runs, darkest where the damp field bottoms out.
+        tmp.lerp(cSeep, CT.clamp((0.40 - damp) * 2.5, 0, 0.58));
+        // Pale crust left behind where the damp field peaks.
+        tmp.lerp(cCrust, CT.clamp((damp - 0.62) * 2.6, 0, 0.5));
+        // Moss along the floor line, in the streaks.
+        tmp.lerp(cMoss, CT.clamp((0.6 - Math.abs(y - 0.4) * 0.3) * (streak - 0.42) * 2.4, 0, 0.55));
+
+        if (y < 0.9) {
+          // The floor is trodden dirt rather than bare rock, with the spill
+          // pooled in whatever is lowest.
+          var floorAmt = CT.clamp((0.9 - y) / 1.5, 0, 1);
+          tmp.lerp(cSilt, floorAmt * (0.18 + stain * 0.26));
+          tmp.lerp(cSpill, CT.clamp((0.36 - damp) * 2.2, 0, 1) * floorAmt * 0.28);
+        }
+
+        // Fine per-vertex grain. Small, but it is the difference between stone
+        // and injection moulding.
+        var g = 1 + (grain - 0.5) * 0.42;
+        tmp.setRGB(CT.clamp(tmp.r * g, 0, 1), CT.clamp(tmp.g * g, 0, 1), CT.clamp(tmp.b * g, 0, 1));
         colors.push(tmp.r, tmp.g, tmp.b);
       }
     }
@@ -368,19 +509,24 @@
     var geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
     geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     geo.setIndex(indices);
     geo.computeVertexNormals();
 
     var mat = new THREE.MeshStandardMaterial({
       vertexColors: true,
-      roughness: 0.96,
-      metalness: 0.04,
+      map: grimeTexture(),
+      bumpMap: grimeTexture(),
+      bumpScale: 0.055,
+      roughness: 0.97,
+      metalness: 0.03,
       flatShading: true,
       side: THREE.FrontSide
     });
 
     var mesh = new THREE.Mesh(geo, mat);
     mesh.receiveShadow = !!S().get('shadows');
+    // Not the texture: it is shared by every chunk and freed by disposeTextures.
     disposables.push(geo, mat);
     return mesh;
   };
@@ -673,6 +819,15 @@
 
   /* ---- chunk assembly ---------------------------------------------------- */
 
+  /* Building a chunk is cheap in JavaScript — a couple of milliseconds — but the
+   * NEXT render is not: fifty fresh BufferGeometries all get uploaded to the GPU
+   * in one frame, and that measured at 60-105 ms, which is exactly the hitch
+   * players were seeing while the rail moved between chambers.
+   *
+   * So a chunk is created in slices. The wall mesh goes up immediately (it is
+   * one object and the chunk must not be an empty hole), and every prop is
+   * pushed onto a work queue that `pump()` drains a couple of items per frame.
+   * Spread that thinly, the uploads disappear into the frame budget. */
   Cave.prototype._buildChunk = function (ci) {
     if (this.chunks[ci]) return;
     var rng = new CT.Rng((this.seed ^ Math.imul(ci + 1, 0x9e3779b1)) >>> 0);
@@ -689,11 +844,35 @@
     var lightBudget = 2;
     var frame = { x: 0, z: 0, h: 0, rx: 1, rz: 0 };
 
+    // Everything below is deferred onto the queue.
+    var chunk = { group: group, disposables: dis, lights: lights, animated: animated,
+                  pending: propCount, ci: ci };
+    this.root.add(group);
+    this.chunks[ci] = chunk;
+
+    var lightBudgetRef = { n: lightBudget };
+    for (var qi = 0; qi < propCount; qi++) {
+      this._queue.push({ ci: ci, chunk: chunk, rng: rng, q: q, s0: s0,
+                         lb: lightBudgetRef, frame: frame });
+    }
+    return;
+  };
+
+  /* Creates one prop for a queued chunk. Split out of _buildChunk so the work
+   * can be dripped in over many frames instead of landing in one. */
+  Cave.prototype._buildOneProp = function (job) {
+    var chunk = job.chunk;
+    // The chunk was recycled out from under this job while it sat in the queue.
+    if (this.chunks[job.ci] !== chunk) return;
+
+    var rng = job.rng, q = job.q, s0 = job.s0, frame = job.frame;
+    var dis = chunk.disposables, group = chunk.group;
+    var lights = chunk.lights, animated = chunk.animated;
+
     // Monsters walk up the middle of the tunnel, so anything tall enough to hide
     // one has to stay out of the central corridor. Flat floor decals and
     // ceiling-mounted clutter are exempt — they never block a silhouette.
     var CORRIDOR = 5.0;
-
     // The rail stops the players every `spacing` units. Nothing may be dressed
     // into those spots — a two-metre pool of luminous specimen fluid rendered
     // from inside is a magenta wall across half the screen.
@@ -702,19 +881,16 @@
       var d = Math.abs(sa) % SPACING;
       return Math.min(d, SPACING - d) < 5.5;
     }
-
-    // Lateral offsets are measured from the centre line, along the route's local
-    // right axis, so props hug the walls correctly through a bend.
     function clearOfCorridor(lat, side) {
       if (Math.abs(lat) >= CORRIDOR) return lat;
       return side * CORRIDOR + lat * 0.15;
     }
 
-    for (var i = 0; i < propCount; i++) {
+    {
       var sa = s0 + rng.range(1, CHUNK_LEN - 1);
       // Corners carry no dressing: the geometry is densest there and a prop
       // pinned to a swinging wall reads as floating.
-      if (nearAStation(sa) || this.isTurning(sa)) continue;
+      if (nearAStation(sa) || this.isTurning(sa)) { chunk.pending--; return; }
       var side = rng.sign();
       var wallR = this.radiusAt(sa, side > 0 ? 0 : Math.PI);
       var kind = rng.next();
@@ -750,8 +926,8 @@
         xPos = rng.range(-wallR * 0.8, wallR * 0.8);
         yPos = this.ceilingAt(sa) * rng.range(0.75, 0.95);
       } else if (kind < 0.85) {
-        var wantLight = lightBudget > 0 && rng.bool(0.7);
-        if (wantLight) lightBudget--;
+        var wantLight = job.lb.n > 0 && rng.bool(0.7);
+        if (wantLight) job.lb.n--;
         p = this._propLight(rng, dis, wantLight);
         xPos = side * rng.range(wallR * 0.65, wallR * 0.88);
         yPos = rng.range(2.2, 4.2);
@@ -779,21 +955,38 @@
         p.position.set(frame.x + frame.rx * xPos, yPos, frame.z + frame.rz * xPos);
         if (!baseRot && kind > 0.44 && kind < 0.85) baseRot = rng.range(0, 6.28);
         p.rotation.y = baseRot + frame.h;
+        if (S().get('shadows')) {
+          p.traverse(function (o) { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+        }
         group.add(p);
       }
     }
+    chunk.pending--;
+  };
 
-    if (S().get('shadows')) {
-      group.traverse(function (o) { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  /* Drains queued prop work. Called every frame, in every game state — the
+   * point is that chunks well ahead of the player finish assembling while they
+   * are standing still fighting, long before the rail reaches them. */
+  Cave.prototype.pump = function (maxProps) {
+    var n = maxProps === undefined ? 2 : maxProps;
+    while (n-- > 0 && this._queue.length) {
+      this._buildOneProp(this._queue.shift());
     }
+  };
 
-    this.root.add(group);
-    this.chunks[ci] = { group: group, disposables: dis, lights: lights, animated: animated };
+  /* Finish everything now. Used behind the loading screen at the start of a run,
+   * where a stall costs nothing. */
+  Cave.prototype.drain = function () {
+    while (this._queue.length) this._buildOneProp(this._queue.shift());
   };
 
   Cave.prototype._disposeChunk = function (ci) {
     var c = this.chunks[ci];
     if (!c) return;
+    // Drop any queued work for this chunk before its geometries go away.
+    if (c.pending > 0) {
+      this._queue = this._queue.filter(function (j) { return j.ci !== ci; });
+    }
     this.root.remove(c.group);
     for (var i = 0; i < c.disposables.length; i++) {
       var d = c.disposables[i];
@@ -815,6 +1008,7 @@
   Cave.prototype.rebuild = function () {
     for (var key in this.chunks) this._disposeChunk(parseInt(key, 10));
     this.chunks = {};
+    this._queue.length = 0;
   };
 
   /* Floating motes so the air reads as thick and contaminated. */
@@ -848,6 +1042,8 @@
   };
 
   Cave.prototype.update = function (dt, time, playerS) {
+    this.pump();
+
     // dust follows the player so the field never runs out
     if (this.dust) {
       this.pointAt(playerS, this.dust.position);

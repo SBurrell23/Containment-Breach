@@ -1,4 +1,4 @@
-/* Cave Typer — pooled hit effects: tracers, impact sparks, gore, muzzle flash.
+/* Cave Typer — pooled hit effects: impact sparks, gore, muzzle flash, brass.
  *
  * Everything is pre-allocated. Nothing here creates geometry at runtime, so a
  * long run does not stutter on GC. */
@@ -8,7 +8,6 @@
   var S = function () { return CT.Settings; };
 
   var MAX_PARTICLES = 1400;
-  var MAX_TRACERS = 16;
   var _shellV = new THREE.Vector3();
 
   /* Muzzle flare texture, drawn once.
@@ -60,7 +59,6 @@
     stage.scene.add(this.root);
 
     this._buildParticles();
-    this._buildTracers();
     this._buildFlash();
     this._buildShells();
     this._buildRings();
@@ -131,42 +129,6 @@
     this.burst(pos, color || 0x9bff2e, big ? 110 : 34, big ? 7 : 4.5, 1.0, 11, big ? 1.4 : 0.9);
     this.burst(pos, 0xffd9a0, big ? 30 : 10, big ? 9 : 6, 1.0, 5, 0.4);
     this.ring(pos, color || 0x9bff2e, big ? 3.5 : 1.6);
-  };
-
-  /* ---- tracers ----------------------------------------------------------- */
-
-  Effects.prototype._buildTracers = function () {
-    this.tracers = [];
-    var geo = new THREE.CylinderGeometry(0.035, 0.008, 1, 5, 1, true);
-    geo.translate(0, -0.5, 0);           // origin at the muzzle end
-    geo.rotateX(Math.PI / 2);            // now points down -Z
-    this.tracerGeo = geo;
-    for (var i = 0; i < MAX_TRACERS; i++) {
-      var mat = new THREE.MeshBasicMaterial({
-        color: 0xffe9b0, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
-        depthWrite: false, side: THREE.DoubleSide
-      });
-      var m = new THREE.Mesh(geo, mat);
-      m.visible = false;
-      m.frustumCulled = false;
-      m.userData.noShadow = true;
-      this.root.add(m);
-      this.tracers.push({ mesh: m, mat: mat, life: 0 });
-    }
-    this.tracerCursor = 0;
-  };
-
-  Effects.prototype.tracer = function (from, to, color) {
-    var t = this.tracers[this.tracerCursor];
-    this.tracerCursor = (this.tracerCursor + 1) % this.tracers.length;
-    t.mesh.position.copy(from);
-    t.mesh.lookAt(to);
-    var d = from.distanceTo(to);
-    t.mesh.scale.set(1, 1, d);
-    t.mesh.visible = true;
-    t.mat.color.setHex(color || 0xffe9b0);
-    t.mat.opacity = 1;
-    t.life = 0.085;
   };
 
   /* ---- expanding shock rings -------------------------------------------- */
@@ -249,8 +211,8 @@
     group.add(part(new THREE.BoxGeometry(0.018, 0.045, 0.21), cellMat, -0.062, 0.012, -0.05));
     group.add(part(new THREE.BoxGeometry(0.018, 0.045, 0.21), cellMat, 0.062, 0.012, -0.05));
 
-    // Muzzle anchor rides on the weapon, so tracers and the flash stay attached
-    // to the brake however the viewmodel is repositioned for the window shape.
+    // Muzzle anchor rides on the weapon, so the flash stays attached to the
+    // brake however the viewmodel is repositioned for the window shape.
     var anchor = new THREE.Object3D();
     anchor.position.set(0, -0.008, -0.86);
     group.add(anchor);
@@ -510,15 +472,6 @@
       this.pGeo.attributes.color.needsUpdate = true;
     }
 
-    // tracers
-    for (var t = 0; t < this.tracers.length; t++) {
-      var tr = this.tracers[t];
-      if (tr.life <= 0) continue;
-      tr.life -= dt;
-      tr.mat.opacity = Math.max(0, tr.life / 0.085);
-      if (tr.life <= 0) { tr.mesh.visible = false; tr.mat.opacity = 0; }
-    }
-
     // rings
     for (var r = 0; r < this.rings.length; r++) {
       var rg = this.rings[r];
@@ -572,8 +525,6 @@
 
   Effects.prototype.dispose = function () {
     this.pGeo.dispose(); this.pMat.dispose();
-    this.tracerGeo.dispose();
-    for (var i = 0; i < this.tracers.length; i++) this.tracers[i].mat.dispose();
     this.ringGeo.dispose();
     for (var r = 0; r < this.rings.length; r++) this.rings[r].mat.dispose();
     this.flashGeo.dispose();
