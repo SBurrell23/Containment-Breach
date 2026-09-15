@@ -21,8 +21,10 @@
           hint: 'Lower renders fewer pixels. The single biggest performance lever.' },
         { key: 'antialias', label: 'Antialiasing (MSAA)', type: 'toggle', def: true,
           hint: 'Smooths edges. Changing this rebuilds the renderer.' },
-        { key: 'fpsCap', label: 'Frame Rate Cap', type: 'select', def: '0',
-          options: [['30', '30 FPS'], ['60', '60 FPS'], ['120', '120 FPS'], ['144', '144 FPS'], ['0', 'Unlimited']] },
+        { key: 'fpsCap', label: 'Frame Rate Cap', type: 'select', def: '120',
+          options: [['30', '30 FPS'], ['60', '60 FPS'], ['120', '120 FPS'], ['144', '144 FPS'], ['0', 'Unlimited']],
+          hint: 'Capped at 120 by default. Uncapped, the loop will happily render '
+              + 'four hundred frames a second of a cave nobody is looking at.' },
         { key: 'shadows', label: 'Shadows', type: 'toggle', def: false,
           hint: 'Dynamic shadow maps. Expensive; off by default.' },
         { key: 'glow', label: 'Glow / Bloom Sprites', type: 'toggle', def: true,
@@ -73,6 +75,18 @@
     }
   }
 
+  /* Bumped when a default changes in a way that should reach players who have
+   * already saved settings. save() writes every key, so the moment someone
+   * touches any option their file pins every default forever - without this, a
+   * changed default would only ever reach people who had never opened the
+   * options screen. Each migration only rewrites a value that is still sitting
+   * on the old default, so a deliberate choice is left alone. */
+  var SCHEMA_VERSION = 2;
+  var MIGRATIONS = {
+    // v2: the frame cap defaults to 120 rather than unlimited.
+    2: function (p) { if (p.fpsCap === '0') p.fpsCap = '120'; }
+  };
+
   var listeners = [];
   var values = {};
 
@@ -81,15 +95,27 @@
     try { raw = global.localStorage.getItem(STORAGE_KEY); } catch (e) { raw = null; }
     var parsed = {};
     if (raw) { try { parsed = JSON.parse(raw) || {}; } catch (e2) { parsed = {}; } }
+
+    var from = parsed.__v || 1;
+    var migrated = raw && from < SCHEMA_VERSION;
+    if (migrated) {
+      for (var v = from + 1; v <= SCHEMA_VERSION; v++) {
+        if (MIGRATIONS[v]) MIGRATIONS[v](parsed);
+      }
+    }
+
     for (var k in defaults) {
       if (Object.prototype.hasOwnProperty.call(defaults, k)) {
         values[k] = Object.prototype.hasOwnProperty.call(parsed, k) ? parsed[k] : defaults[k];
       }
     }
+    if (migrated || !raw) save();
   }
 
   function save() {
-    try { global.localStorage.setItem(STORAGE_KEY, JSON.stringify(values)); } catch (e) { /* private mode */ }
+    var out = { __v: SCHEMA_VERSION };
+    for (var k in values) if (Object.prototype.hasOwnProperty.call(values, k)) out[k] = values[k];
+    try { global.localStorage.setItem(STORAGE_KEY, JSON.stringify(out)); } catch (e) { /* private mode */ }
   }
 
   var Settings = {

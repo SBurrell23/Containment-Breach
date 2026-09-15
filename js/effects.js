@@ -52,6 +52,84 @@
     return _flareTex;
   }
 
+  /* ---- gore ---------------------------------------------------------------
+   *
+   * The existing particle system is additively blended, which is right for
+   * sparks and muzzle flash and exactly wrong for blood: additive can only ever
+   * add light, so every "blood" particle came out as a bright glowing dot. Wet
+   * red needs normal blending and a texture with real alpha in it, so the gore
+   * gets its own system rather than another colour passed to burst().
+   */
+
+  var MAX_BLOOD = 900;
+  var MAX_CHUNKS = 26;
+  var MAX_SPLATS = 18;
+  var _goreTex = {};
+
+  /* One irregular droplet, soft at the edge and darkest off-centre, so a
+   * cloud of them reads as wet rather than as a field of identical dots. */
+  function bloodTexture() {
+    if (_goreTex.drop) return _goreTex.drop;
+    var N = 64, c = document.createElement('canvas');
+    c.width = c.height = N;
+    var g = c.getContext('2d');
+    var rng = new CT.Rng(0xb100d);
+    var half = N / 2;
+
+    // The body of the drop: an off-round blob, not a circle.
+    g.beginPath();
+    for (var a = 0; a <= 32; a++) {
+      var th = (a / 32) * Math.PI * 2;
+      var rad = half * (0.66 + 0.26 * Math.sin(th * 3 + 1.1) * rng.range(0.4, 1));
+      var x = half + Math.cos(th) * rad, y = half + Math.sin(th) * rad;
+      if (a === 0) g.moveTo(x, y); else g.lineTo(x, y);
+    }
+    g.closePath();
+    var grd = g.createRadialGradient(half * 0.82, half * 0.78, 1, half, half, half);
+    grd.addColorStop(0.00, 'rgba(255,255,255,1)');
+    grd.addColorStop(0.45, 'rgba(210,210,210,0.96)');
+    grd.addColorStop(0.82, 'rgba(120,120,120,0.55)');
+    grd.addColorStop(1.00, 'rgba(0,0,0,0)');
+    g.fillStyle = grd;
+    g.fill();
+
+    _goreTex.drop = new THREE.CanvasTexture(c);
+    return _goreTex.drop;
+  }
+
+  /* A splat for the floor: a main pool with satellite droplets thrown off it. */
+  function splatTexture() {
+    if (_goreTex.splat) return _goreTex.splat;
+    var N = 128, c = document.createElement('canvas');
+    c.width = c.height = N;
+    var g = c.getContext('2d');
+    var rng = new CT.Rng(0x51a7bb);
+    var half = N / 2;
+
+    function blob(cx, cy, r, alpha) {
+      g.beginPath();
+      for (var a = 0; a <= 24; a++) {
+        var th = (a / 24) * Math.PI * 2;
+        var rad = r * rng.range(0.6, 1.25);
+        var x = cx + Math.cos(th) * rad, y = cy + Math.sin(th) * rad;
+        if (a === 0) g.moveTo(x, y); else g.lineTo(x, y);
+      }
+      g.closePath();
+      g.fillStyle = 'rgba(255,255,255,' + alpha + ')';
+      g.fill();
+    }
+
+    blob(half, half, half * 0.42, 0.95);
+    for (var i = 0; i < 16; i++) {
+      var th2 = rng.range(0, 6.3);
+      var d = rng.range(half * 0.35, half * 0.92);
+      blob(half + Math.cos(th2) * d, half + Math.sin(th2) * d,
+           half * rng.range(0.035, 0.13), rng.range(0.4, 0.9));
+    }
+    _goreTex.splat = new THREE.CanvasTexture(c);
+    return _goreTex.splat;
+  }
+
   function Effects(stage) {
     this.stage = stage;
     this.root = new THREE.Group();
@@ -59,10 +137,218 @@
     stage.scene.add(this.root);
 
     this._buildParticles();
+    this._buildBlood();
+    this._buildChunks();
+    this._buildSplats();
     this._buildFlash();
     this._buildShells();
     this._buildRings();
+
+    // One pooled light for kills. A specimen coming apart should throw red
+    // light onto the rock around it for a moment; without that the burst is
+    // just a decal floating in an unlit chamber.
+    this.killLight = new THREE.PointLight(0xff2a10, 0, 16, 2.0);
+    this.killLight.userData.noShadow = true;
+    this.root.add(this.killLight);
   }
+
+  /* ---- blood ---------------------------------------------------------------
+   *
+   * Its own points system, with a shader rather than PointsMaterial, for two
+   * reasons: PointsMaterial has one global opacity, so particles can only fade
+   * by darkening toward black (fine against additive, wrong for blood), and one
+   * global size, so every drop is the same drop. Per-particle alpha and size
+   * are most of what separates spatter from confetti. */
+  Effects.prototype._buildBlood = function () {
+    var n = MAX_BLOOD;
+    this.bPos = new Float32Array(n * 3);
+    this.bCol = new Float32Array(n * 3);
+    this.bVel = new Float32Array(n * 3);
+    this.bAlpha = new Float32Array(n);
+    this.bSize = new Float32Array(n);
+    this.bLife = new Float32Array(n);
+    this.bMax = new Float32Array(n);
+    this.bCursor = 0;
+    for (var i = 0; i < n; i++) this.bPos[i * 3 + 1] = -9999;
+
+    var geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(this.bPos, 3));
+    geo.setAttribute('aColor', new THREE.BufferAttribute(this.bCol, 3));
+    geo.setAttribute('aAlpha', new THREE.BufferAttribute(this.bAlpha, 1));
+    geo.setAttribute('aSize', new THREE.BufferAttribute(this.bSize, 1));
+
+    var mat = new THREE.ShaderMaterial({
+      uniforms: {
+        map: { value: bloodTexture() },
+        fogColor: { value: new THREE.Color(CT.FOG_COLOR) },
+        fogDensity: { value: 0.0 }
+      },
+      vertexShader: [
+        'attribute vec3 aColor;',
+        'attribute float aAlpha;',
+        'attribute float aSize;',
+        'varying vec3 vColor;',
+        'varying float vAlpha;',
+        'varying float vDepth;',
+        'void main() {',
+        '  vColor = aColor;',
+        '  vAlpha = aAlpha;',
+        '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
+        '  vDepth = -mv.z;',
+        '  gl_PointSize = aSize * (320.0 / max(0.001, -mv.z));',
+        '  gl_Position = projectionMatrix * mv;',
+        '}'
+      ].join('\n'),
+      fragmentShader: [
+        'uniform sampler2D map;',
+        'uniform vec3 fogColor;',
+        'uniform float fogDensity;',
+        'varying vec3 vColor;',
+        'varying float vAlpha;',
+        'varying float vDepth;',
+        'void main() {',
+        '  vec4 t = texture2D(map, gl_PointCoord);',
+        '  float a = t.a * vAlpha;',
+        '  if (a < 0.02) discard;',
+        // Fog by hand: the cave is FogExp2, and blood that ignores it hangs in
+        // the dark at the far end of the tunnel like a sticker.
+        '  float f = 1.0 - exp(-fogDensity * fogDensity * vDepth * vDepth);',
+        '  gl_FragColor = vec4(mix(vColor * t.rgb, fogColor, clamp(f, 0.0, 1.0)), a);',
+        '}'
+      ].join('\n'),
+      transparent: true,
+      depthWrite: false
+    });
+
+    this.blood = new THREE.Points(geo, mat);
+    this.blood.frustumCulled = false;
+    this.blood.userData.noShadow = true;
+    this.root.add(this.blood);
+    this.bGeo = geo; this.bMat = mat;
+  };
+
+  Effects.prototype.bloodBurst = function (pos, count, speed, life, size) {
+    var density = S().getNum('particles');
+    count = Math.max(1, Math.round(count * density));
+    for (var i = 0; i < count; i++) {
+      var idx = this.bCursor;
+      this.bCursor = (this.bCursor + 1) % MAX_BLOOD;
+      var o = idx * 3;
+      this.bPos[o] = pos.x; this.bPos[o + 1] = pos.y; this.bPos[o + 2] = pos.z;
+      var th = Math.random() * Math.PI * 2;
+      var ph = Math.acos(2 * Math.random() - 1);
+      var sp = speed * (0.25 + Math.random() * 1.1);
+      this.bVel[o] = Math.sin(ph) * Math.cos(th) * sp;
+      // Biased upward: arterial, not a leak.
+      this.bVel[o + 1] = Math.cos(ph) * sp + speed * 0.35;
+      this.bVel[o + 2] = Math.sin(ph) * Math.sin(th) * sp;
+      // Arterial red through to nearly-black venous, so the cloud has depth.
+      var dark = Math.random();
+      this.bCol[o] = 0.30 + dark * 0.52;
+      this.bCol[o + 1] = 0.012 + dark * 0.055;
+      this.bCol[o + 2] = 0.016 + dark * 0.05;
+      this.bSize[idx] = size * (0.5 + Math.random() * 1.1);
+      this.bAlpha[idx] = 1;
+      this.bMax[idx] = life * (0.55 + Math.random() * 0.9);
+      this.bLife[idx] = this.bMax[idx];
+    }
+  };
+
+  /* ---- flying pieces -------------------------------------------------------
+   * Points cannot tumble, and a specimen that bursts into nothing but spray
+   * reads as a balloon popping. These are the bits of it. */
+  Effects.prototype._buildChunks = function () {
+    this.chunks = [];
+    // Three irregular solids, shared: a chunk is on screen for under a second
+    // and nobody counts the faces.
+    this.chunkGeos = [];
+    for (var v = 0; v < 3; v++) {
+      var g = new THREE.IcosahedronGeometry(0.07 + v * 0.028, 0);
+      var p = g.attributes.position;
+      var rng = new CT.Rng(0xc0ffee + v);
+      for (var k = 0; k < p.count; k++) {
+        p.setXYZ(k, p.getX(k) * rng.range(0.55, 1.5),
+                    p.getY(k) * rng.range(0.55, 1.5),
+                    p.getZ(k) * rng.range(0.55, 1.5));
+      }
+      g.computeVertexNormals();
+      this.chunkGeos.push(g);
+    }
+    this.chunkMat = new THREE.MeshStandardMaterial({
+      color: 0x431016, roughness: 0.78, metalness: 0.0, flatShading: true
+    });
+    CT.detailMat(this.chunkMat, 'hide', 2, 0.02);
+
+    for (var i = 0; i < MAX_CHUNKS; i++) {
+      var m = new THREE.Mesh(this.chunkGeos[i % 3], this.chunkMat);
+      m.visible = false;
+      m.userData.noShadow = true;
+      this.root.add(m);
+      this.chunks.push({ mesh: m, life: 0, max: 1, vel: new THREE.Vector3(), spin: new THREE.Vector3() });
+    }
+    this.chunkCursor = 0;
+  };
+
+  Effects.prototype.chunkBurst = function (pos, count, speed, groundY) {
+    for (var i = 0; i < count; i++) {
+      var c = this.chunks[this.chunkCursor];
+      this.chunkCursor = (this.chunkCursor + 1) % MAX_CHUNKS;
+      c.mesh.position.copy(pos);
+      c.mesh.visible = true;
+      c.mesh.rotation.set(Math.random() * 6.3, Math.random() * 6.3, Math.random() * 6.3);
+      var sc = 0.6 + Math.random() * 0.7;
+      c.mesh.scale.setScalar(sc);
+      var th = Math.random() * Math.PI * 2;
+      var ph = Math.acos(2 * Math.random() - 1);
+      var sp = speed * (0.4 + Math.random());
+      c.vel.set(Math.sin(ph) * Math.cos(th) * sp, Math.cos(ph) * sp + speed * 0.5, Math.sin(ph) * Math.sin(th) * sp);
+      c.spin.set((Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14, (Math.random() - 0.5) * 14);
+      c.max = 1.0 + Math.random() * 0.7;
+      c.life = c.max;
+      c.ground = groundY === undefined ? 0.05 : groundY + 0.05;
+      c.scale0 = sc;
+    }
+  };
+
+  /* ---- floor splats -------------------------------------------------------- */
+
+  Effects.prototype._buildSplats = function () {
+    this.splats = [];
+    this.splatGeo = new THREE.PlaneGeometry(1, 1);
+    this.splatMats = [];
+    for (var i = 0; i < MAX_SPLATS; i++) {
+      var mat = new THREE.MeshBasicMaterial({
+        map: splatTexture(), color: 0x4a0a0c, transparent: true, opacity: 0,
+        depthWrite: false, side: THREE.DoubleSide,
+        // Lying flat on a displaced floor, so the same depth bias the old
+        // specimen pools needed.
+        polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -3
+      });
+      var m = new THREE.Mesh(this.splatGeo, mat);
+      m.rotation.x = -Math.PI / 2;
+      m.visible = false;
+      m.userData.noShadow = true;
+      this.root.add(m);
+      this.splatMats.push(mat);
+      this.splats.push({ mesh: m, mat: mat, life: 0, max: 1 });
+    }
+    this.splatCursor = 0;
+  };
+
+  Effects.prototype.splat = function (pos, groundY, size) {
+    var sp = this.splats[this.splatCursor];
+    this.splatCursor = (this.splatCursor + 1) % MAX_SPLATS;
+    sp.mesh.position.set(pos.x + (Math.random() - 0.5) * size,
+                         (groundY === undefined ? 0 : groundY) + 0.035,
+                         pos.z + (Math.random() - 0.5) * size);
+    sp.mesh.rotation.z = Math.random() * 6.3;
+    sp.mesh.scale.setScalar(size * (0.7 + Math.random() * 0.7));
+    sp.mesh.visible = true;
+    sp.mat.opacity = 0.85;
+    sp.max = 7 + Math.random() * 5;
+    sp.life = sp.max;
+  };
+
 
   /* ---- particles --------------------------------------------------------- */
 
@@ -117,18 +403,43 @@
     }
   };
 
-  /* Splash of specimen fluid where a shot lands. */
-  Effects.prototype.impact = function (pos, color) {
-    this.burst(pos, color || 0x9bff2e, 14, 4.5, 1.0, 9, 0.55);
-    this.burst(pos, 0xfff0c0, 6, 7.0, 1.0, 2, 0.16);
-    this.ring(pos, color || 0x9bff2e, 0.9);
+  /* Splash where a shot lands: mostly blood, with a little of the specimen's
+   * own luminous fluid so each type still reads as its own thing. */
+  Effects.prototype.impact = function (pos, color, groundY) {
+    this.bloodBurst(pos, 18, 4.0, 0.8, 0.3);
+    this.burst(pos, color || 0x9bff2e, 7, 4.5, 1.0, 9, 0.5);
+    this.burst(pos, 0xfff0c0, 5, 7.0, 1.0, 2, 0.16);
+    this.ring(pos, 0xff3a18, 0.7);
+    if (Math.random() < 0.35) this.splat(pos, groundY, 0.7);
   };
 
-  /* A monster comes apart. */
-  Effects.prototype.gib = function (pos, color, big) {
-    this.burst(pos, color || 0x9bff2e, big ? 110 : 34, big ? 7 : 4.5, 1.0, 11, big ? 1.4 : 0.9);
-    this.burst(pos, 0xffd9a0, big ? 30 : 10, big ? 9 : 6, 1.0, 5, 0.4);
-    this.ring(pos, color || 0x9bff2e, big ? 3.5 : 1.6);
+  /* A specimen comes apart.
+   *
+   * Four things at once, because one of them alone always reads as a decal: a
+   * red flash with light behind it so the rock around the kill lights up, a
+   * dense cloud of textured blood, solid pieces that tumble and land, and the
+   * mess they leave on the floor. */
+  Effects.prototype.gib = function (pos, color, big, groundY) {
+    var p = big ? 1 : 0;
+
+    this.bloodBurst(pos, big ? 240 : 85, big ? 8.5 : 5.5, big ? 1.7 : 1.2, big ? 0.62 : 0.42);
+    // A little of its own fluid, so a goo crawler and a security husk do not
+    // burst identically.
+    this.burst(pos, color || 0x9bff2e, big ? 34 : 12, big ? 7 : 4.5, 1.0, 11, big ? 1.2 : 0.8);
+    // Embers, which is what sells it as an explosion rather than a splash.
+    this.burst(pos, 0xff7a24, big ? 40 : 14, big ? 10 : 7, 1.0, 6, big ? 0.55 : 0.32);
+
+    this.chunkBurst(pos, big ? 14 : 6, big ? 7 : 5, groundY);
+
+    var splats = big ? 5 : 2;
+    for (var i = 0; i < splats; i++) this.splat(pos, groundY, big ? 3.2 : 1.5);
+
+    this.ring(pos, 0xff2a10, big ? 4.0 : 1.9);
+    this.ring(pos, 0xffb070, big ? 2.4 : 1.1);
+
+    this.killLight.position.copy(pos);
+    this.killLight.intensity = big ? 14 : 6;
+    this.killLight.distance = big ? 26 : 16;
   };
 
   /* ---- expanding shock rings -------------------------------------------- */
@@ -479,6 +790,73 @@
       this.pGeo.attributes.color.needsUpdate = true;
     }
 
+    // blood
+    var bp = this.bPos, bv = this.bVel, bl = this.bLife, bm = this.bMax, ba = this.bAlpha;
+    var anyB = false;
+    for (var b = 0; b < MAX_BLOOD; b++) {
+      if (bl[b] <= 0) continue;
+      anyB = true;
+      bl[b] -= dt;
+      var bo = b * 3;
+      if (bl[b] <= 0) { bp[bo + 1] = -9999; ba[b] = 0; continue; }
+      bv[bo + 1] -= 16 * dt;                       // heavier than sparks
+      var bd = Math.exp(-1.1 * dt);
+      bv[bo] *= bd; bv[bo + 2] *= bd;
+      bp[bo] += bv[bo] * dt;
+      bp[bo + 1] += bv[bo + 1] * dt;
+      bp[bo + 2] += bv[bo + 2] * dt;
+      if (bp[bo + 1] < 0.02) {
+        // Lands and stays landed rather than bouncing like a spark. Blood that
+        // ricochets looks like gravel.
+        bp[bo + 1] = 0.02;
+        bv[bo] *= 0.2; bv[bo + 1] = 0; bv[bo + 2] *= 0.2;
+      }
+      var bf = bl[b] / bm[b];
+      ba[b] = bf > 0.4 ? 1 : bf / 0.4;
+    }
+    if (anyB) {
+      this.bGeo.attributes.position.needsUpdate = true;
+      this.bGeo.attributes.aAlpha.needsUpdate = true;
+      this.bGeo.attributes.aColor.needsUpdate = true;
+      this.bGeo.attributes.aSize.needsUpdate = true;
+    }
+    if (this.stage.scene.fog) this.bMat.uniforms.fogDensity.value = this.stage.scene.fog.density;
+
+    // flying pieces
+    for (var ci = 0; ci < this.chunks.length; ci++) {
+      var ch = this.chunks[ci];
+      if (ch.life <= 0) continue;
+      ch.life -= dt;
+      if (ch.life <= 0) { ch.mesh.visible = false; continue; }
+      ch.vel.y -= 26 * dt;
+      ch.mesh.position.addScaledVector(ch.vel, dt);
+      if (ch.mesh.position.y < ch.ground) {
+        ch.mesh.position.y = ch.ground;
+        ch.vel.set(ch.vel.x * 0.3, Math.abs(ch.vel.y) * 0.22, ch.vel.z * 0.3);
+        ch.spin.multiplyScalar(0.35);
+      }
+      ch.mesh.rotation.x += ch.spin.x * dt;
+      ch.mesh.rotation.y += ch.spin.y * dt;
+      ch.mesh.rotation.z += ch.spin.z * dt;
+      // Sinks away over the last third rather than vanishing mid-air.
+      var cf = ch.life / ch.max;
+      ch.mesh.scale.setScalar(ch.scale0 * (cf > 0.3 ? 1 : cf / 0.3));
+    }
+
+    // floor splats
+    for (var si = 0; si < this.splats.length; si++) {
+      var sl = this.splats[si];
+      if (sl.life <= 0) continue;
+      sl.life -= dt;
+      if (sl.life <= 0) { sl.mesh.visible = false; sl.mat.opacity = 0; continue; }
+      var sf = sl.life / sl.max;
+      sl.mat.opacity = 0.85 * (sf > 0.55 ? 1 : sf / 0.55);
+    }
+
+    if (this.killLight.intensity > 0) {
+      this.killLight.intensity = Math.max(0, this.killLight.intensity - dt * 34);
+    }
+
     // rings
     for (var r = 0; r < this.rings.length; r++) {
       var rg = this.rings[r];
@@ -532,6 +910,13 @@
 
   Effects.prototype.dispose = function () {
     this.pGeo.dispose(); this.pMat.dispose();
+    this.bGeo.dispose(); this.bMat.dispose();
+    for (var cg = 0; cg < this.chunkGeos.length; cg++) this.chunkGeos[cg].dispose();
+    this.chunkMat.dispose();
+    this.splatGeo.dispose();
+    for (var sm = 0; sm < this.splatMats.length; sm++) this.splatMats[sm].dispose();
+    for (var gk in _goreTex) { if (_goreTex[gk]) _goreTex[gk].dispose(); }
+    _goreTex = {};
     this.ringGeo.dispose();
     for (var r = 0; r < this.rings.length; r++) this.rings[r].mat.dispose();
     this.flashGeo.dispose();

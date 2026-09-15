@@ -108,6 +108,10 @@
       silt: new THREE.Color().setHSL(rng.range(0.06, 0.11), rng.range(0.10, 0.20), rng.range(0.075, 0.115)),
       // Whatever leaked out of the vats, pooled at the bottom of the tunnel.
       spill: spill,
+      // Sub-level seven is a vivarium. Whatever was being grown down here has
+      // had the run of the place since containment failed.
+      vine: new THREE.Color().setHSL(rng.range(0.23, 0.33), rng.range(0.30, 0.50), rng.range(0.06, 0.11)),
+      leaf: new THREE.Color().setHSL(rng.range(0.21, 0.32), rng.range(0.32, 0.55), rng.range(0.10, 0.17)),
       glow: glow,
       glow2: glowChoice < 0.45 ? 0x36e0ff : 0x7dff4a,
       metal: 0x60666d,
@@ -312,6 +316,13 @@
     return { rings: 22, radial: 26, props: 1.0 };
   };
 
+  /* Height of the tunnel floor under a world position. This is the same
+   * displacement _buildWalls applies to the bottom of each ring, kept in one
+   * place so that anything standing on the floor agrees with the floor. */
+  Cave.prototype.floorAt = function (x, z) {
+    return (this.noise.fbm3(x * 0.16, 9.1, z * 0.16, 3) - 0.5) * 0.7 - 0.05;
+  };
+
   /* ---- wall mesh --------------------------------------------------------- */
 
   Cave.prototype._buildWalls = function (ci, disposables) {
@@ -326,6 +337,7 @@
     var cRock = pal.rock, cDark = pal.rockDark, cMoss = pal.moss;
     var cRust = pal.rust, cCrust = pal.crust, cSeep = pal.seep;
     var cSilt = pal.silt, cSpill = pal.spill;
+    var cVine = pal.vine, cLeaf = pal.leaf;
     var tmp = new THREE.Color();
     var N = this.noise;
     var frame = { x: 0, z: 0, h: 0, rx: 1, rz: 0 };
@@ -359,9 +371,8 @@
         var x = frame.x + frame.rx * lat;
         var z = frame.z + frame.rz * lat;
         if (y < 0) {
-          var bump = (this.noise.fbm3(x * 0.16, 9.1, z * 0.16, 3) - 0.5) * 0.7;
           var flatness = CT.clamp(-y / 3.0, 0, 1);
-          y = CT.lerp(y, bump - 0.05, flatness);
+          y = CT.lerp(y, this.floorAt(x, z), flatness);
         } else {
           // clamp the ceiling so the tunnel does not balloon vertically
           y = Math.min(y, ceil);
@@ -399,6 +410,17 @@
         tmp.lerp(cCrust, CT.clamp((damp - 0.62) * 2.6, 0, 0.5));
         // Moss along the floor line, in the streaks.
         tmp.lerp(cMoss, CT.clamp((0.6 - Math.abs(y - 0.4) * 0.3) * (streak - 0.42) * 2.4, 0, 0.55));
+
+        /* Overgrowth. Its own field rather than more of the moss streak,
+         * because growth does not follow water the way staining does — it
+         * follows whatever it has already colonised, in patches with edges.
+         * Weighted toward the lower wall, where the light and the damp are,
+         * and thinned out high up where only the hardiest of it reaches. */
+        var green = N.fbm3(x * 0.07 + 61.1, y * 0.13, z * 0.07, 4);
+        var reach = 0.35 + 0.65 * low;
+        tmp.lerp(cVine, CT.clamp((green - 0.52) * 3.0, 0, 0.72) * reach);
+        // The edge of a patch is where the new growth is, and it is brighter.
+        tmp.lerp(cLeaf, CT.clamp(1 - Math.abs(green - 0.52) * 11, 0, 1) * 0.30 * reach);
 
         if (y < 0.9) {
           // The floor is trodden dirt rather than bare rock, with the spill
@@ -493,10 +515,16 @@
      * swings past a pod the glass and its occupant trade places in the order —
      * and whichever went first wrote depth and cut the other one out. That was
      * the occupant blinking in and out of its tank. */
-    var glassMat = trackMat(dis, new THREE.MeshStandardMaterial({
+    var glassMat = new THREE.MeshStandardMaterial({
       color: 0x8fd6e0, transparent: true, opacity: 0.22, roughness: 0.15,
       metalness: 0.0, side: THREE.DoubleSide, depthWrite: false
-    }));
+    });
+    // Set by hand rather than through trackMat, which declines to texture
+    // transparent surfaces on the grounds that they are meant to read as glass.
+    // This one is meant to read as glass that nobody has cleaned since the
+    // breach, which is a different thing.
+    glassMat.map = CT.detail('metal', 2);
+    trackMat(dis, glassMat);
     var glass = new THREE.Mesh(glassGeo, glassMat);
     glass.position.y = h / 2 + 0.3;
     glass.renderOrder = 3;
@@ -504,18 +532,57 @@
 
     // occupant / residue
     if (rng.bool(0.75)) {
-      var occGeo = trackGeo(dis, new THREE.IcosahedronGeometry(r * rng.range(0.45, 0.75), 1));
-      // Opaque: it is already behind tinted glass, so the 15% it was giving
-      // back bought nothing and cost it a place in the transparent sort.
-      var occMat = trackMat(dis, new THREE.MeshStandardMaterial({
-        color: pal.goo, emissive: pal.goo, emissiveIntensity: rng.range(0.4, 1.1),
-        roughness: 0.6, flatShading: true
-      }));
+      var occGeo = trackGeo(dis, new THREE.IcosahedronGeometry(r * rng.range(0.5, 0.78), 2));
+      // A lumpy displaced solid, not a ball. A smooth sphere glowing at full
+      // strength inside a tank reads as a marble under a lamp: no surface, no
+      // silhouette, just a flat disc of colour.
+      var pos = occGeo.attributes.position;
+      var vv = new THREE.Vector3();
+      for (var vi = 0; vi < pos.count; vi++) {
+        vv.fromBufferAttribute(pos, vi);
+        vv.multiplyScalar(1 + (this.noise.fbm3(vv.x * 2.4 + 31, vv.y * 2.4, vv.z * 2.4, 3) - 0.5) * 0.9);
+        pos.setXYZ(vi, vv.x, vv.y, vv.z);
+      }
+      pos.needsUpdate = true;
+      occGeo.computeVertexNormals();
+
+      /* Dead tissue that happens to fluoresce, rather than a light bulb: a
+       * dark body with the goo colour as a tint on it. Smooth-shaded, because
+       * flat shading on a displaced solid gives it hard crystal facets and the
+       * thing in the tank then reads as a lump of ice. Opaque, because it is
+       * already behind tinted glass - the 15% it used to give back bought
+       * nothing and cost it a place in the transparent sort. */
+      var occMat = new THREE.MeshStandardMaterial({
+        color: 0x2a1c22, emissive: pal.goo, emissiveIntensity: rng.range(0.08, 0.18),
+        roughness: 0.86, metalness: 0.0
+      });
+      occMat.map = CT.detail('hide', 3);
+      occMat.bumpMap = occMat.map;
+      occMat.bumpScale = 0.035;
+      trackMat(dis, occMat);
+
       var occ = new THREE.Mesh(occGeo, occMat);
-      occ.position.y = rng.range(0.6, h * 0.7);
-      occ.scale.y = rng.range(0.7, 1.6);
+      var occY = rng.range(0.7, h * 0.65);
+      occ.position.y = occY;
+      occ.scale.set(rng.range(0.85, 1.1), rng.range(0.75, 1.5), rng.range(0.85, 1.1));
+      occ.rotation.set(rng.range(0, 6.3), rng.range(0, 6.3), rng.range(0, 6.3));
       g.add(occ);
+
+      // Sloughed-off pieces hanging in the fluid around it. One clean specimen
+      // suspended dead centre looks placed; debris looks like it decayed there.
+      var bits = rng.int(2, 5);
+      for (var bi = 0; bi < bits; bi++) {
+        var bg = trackGeo(dis, new THREE.IcosahedronGeometry(r * rng.range(0.08, 0.2), 0));
+        var bm = new THREE.Mesh(bg, occMat);
+        var ba = rng.range(0, 6.3), br = rng.range(0.15, r * 0.75);
+        bm.position.set(Math.cos(ba) * br, occY + rng.range(-h * 0.3, h * 0.3), Math.sin(ba) * br);
+        bm.rotation.set(rng.range(0, 6.3), rng.range(0, 6.3), rng.range(0, 6.3));
+        g.add(bm);
+      }
       g.userData.pulse = occMat;
+      // Without this the animator falls back to its 0.45 default and undoes the
+      // whole point of dimming it.
+      g.userData.pulseBase = occMat.emissiveIntensity;
     }
 
     // vertical strip light
@@ -620,41 +687,229 @@
     return g;
   };
 
-  Cave.prototype._propGooPool = function (rng, dis) {
-    var pal = this.palette;
-    var r = rng.range(0.8, 1.8);
-    var geo = trackGeo(dis, new THREE.CircleGeometry(r, 12));
-    var mat = trackMat(dis, new THREE.MeshStandardMaterial({
-      color: 0x0d1a08, emissive: pal.goo, emissiveIntensity: rng.range(0.14, 0.34),
-      roughness: 0.25, metalness: 0.1, transparent: true, opacity: 0.75,
-      // The pool is a flat disc lying on a lumpy floor mesh; without a depth
-      // bias the two z-fight into a shimmering mess.
-      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2
-    }));
-    var m = new THREE.Mesh(geo, mat);
-    m.rotation.x = -Math.PI / 2;
-    m.position.y = 0.06;
-    m.userData.pulse = mat;
-    m.userData.pulseBase = mat.emissiveIntensity;
-    return m;
-  };
-
+  /* A cluster, not a spike. Caves do not grow one stalagmite in splendid
+   * isolation, and one cone per prop slot made the tunnel read as bare rock
+   * with the occasional traffic cone standing in it. One tall formation with a
+   * scatter of stubbier ones around its foot is what the real thing looks like,
+   * and it multiplies the count without multiplying the prop budget. */
   Cave.prototype._propStalagmite = function (rng, dis, up) {
     var pal = this.palette;
-    var h = rng.range(0.8, 3.2);
-    var r = rng.range(0.22, 0.75);
-    var geo = trackGeo(dis, new THREE.ConeGeometry(r, h, rng.int(5, 8), 2));
     var mat = trackMat(dis, new THREE.MeshStandardMaterial({
       color: pal.rockDark, roughness: 0.98, flatShading: true
     }), 'rock', 1);
-    var m = new THREE.Mesh(geo, mat);
-    m.position.y = up ? h / 2 : -h / 2;
-    if (!up) m.rotation.z = Math.PI;
-    var wrap = new THREE.Group();
-    wrap.add(m);
+    // Ceilings carry far more of these than floors do, and they spread further,
+    // because nothing has to hold them up from below.
+    var n = up ? rng.int(3, 8) : rng.int(5, 13);
+    var spread = up ? 1.3 : 2.4;
+    var tall = up ? rng.range(1.1, 3.4) : rng.range(0.9, 2.8);
+    var parts = [];
+    var mx = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+    var pv = new THREE.Vector3(), sv = new THREE.Vector3();
+    for (var i = 0; i < n; i++) {
+      var h = i === 0 ? tall : tall * rng.range(0.18, 0.7);
+      var r = h * rng.range(0.13, 0.27);
+      var ang = rng.range(0, 6.3);
+      var rad = i === 0 ? 0 : rng.range(0.25, spread);
+      pv.set(Math.cos(ang) * rad, up ? h / 2 : -h / 2, Math.sin(ang) * rad);
+      e.set(up ? 0 : Math.PI, rng.range(0, 6.3), 0);
+      q.setFromEuler(e);
+      sv.set(rng.range(0.85, 1.15), 1, rng.range(0.85, 1.15));
+      mx.compose(pv, q, sv);
+      parts.push({ geo: new THREE.ConeGeometry(r, h, rng.int(5, 8), 2), matrix: mx.clone() });
+    }
+    var wrap = new THREE.Mesh(trackGeo(dis, mergeParts(parts)), mat);
     wrap.rotation.y = rng.range(0, 6.3);
-    wrap.scale.set(rng.range(0.8, 1.2), 1, rng.range(0.8, 1.2));
     return wrap;
+  };
+
+  /* Merges a list of {geo, matrix} into one BufferGeometry.
+   *
+   * A stalactite cluster is a dozen cones and a vine curtain is a dozen tubes,
+   * and left as a dozen meshes each that is a dozen draw calls for one thing
+   * the player reads as a single object. The examples build of
+   * BufferGeometryUtils is not available - the game loads the plain three.js
+   * UMD so it can also run straight off the filesystem - so this does the one
+   * case that matters. Non-indexed, because rewriting index buffers is
+   * bookkeeping that buys nothing at these vertex counts.
+   *
+   * Source geometries are consumed: they are never uploaded, and the caller
+   * should not track them for disposal. */
+  var _mNorm = new THREE.Matrix3();
+  var _mV = new THREE.Vector3();
+
+  function mergeParts(parts) {
+    var pos = [], nor = [], uv = [];
+    for (var i = 0; i < parts.length; i++) {
+      var src = parts[i].geo;
+      var g = src.index ? src.toNonIndexed() : src;
+      var m = parts[i].matrix;
+      _mNorm.getNormalMatrix(m);
+      var p = g.attributes.position, n = g.attributes.normal, t = g.attributes.uv;
+      for (var k = 0; k < p.count; k++) {
+        _mV.fromBufferAttribute(p, k).applyMatrix4(m);
+        pos.push(_mV.x, _mV.y, _mV.z);
+        if (n) {
+          _mV.fromBufferAttribute(n, k).applyMatrix3(_mNorm).normalize();
+          nor.push(_mV.x, _mV.y, _mV.z);
+        }
+        if (t) uv.push(t.getX(k), t.getY(k));
+      }
+      if (g !== src) g.dispose();
+      src.dispose();
+    }
+    var out = new THREE.BufferGeometry();
+    out.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    if (nor.length) out.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+    if (uv.length) out.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    return out;
+  }
+
+  /* ---- vegetation ---------------------------------------------------------
+   *
+   * Leaves and creepers are instanced: a curtain of vines is a hundred small
+   * quads, and a hundred small quads as a hundred meshes is a hundred draw
+   * calls for something the player walks past without looking at.
+   */
+
+  function leafMats(cave, dis) {
+    var pal = cave.palette;
+    var stem = trackMat(dis, new THREE.MeshStandardMaterial({
+      color: pal.vine.getHex(), roughness: 0.95, metalness: 0.0, flatShading: true
+    }), 'hide', 2);
+    var leaf = trackMat(dis, new THREE.MeshStandardMaterial({
+      color: pal.leaf.getHex(), roughness: 0.88, metalness: 0.0,
+      side: THREE.DoubleSide, flatShading: true
+    }), 'hide', 1);
+    return { stem: stem, leaf: leaf };
+  }
+
+  /* Scatters `count` leaves along a curve as one instanced mesh.
+   *
+   * Spacing is even with jitter rather than uniformly random: leaves grow from
+   * nodes along a stem at roughly regular intervals, and a purely random t
+   * clumps some together and leaves bare gaps, which reads as litter stuck to
+   * the vine rather than as anything growing out of it. */
+  function leavesAlong(dis, mat, curves, size, rng) {
+    var total = 0, ci;
+    for (ci = 0; ci < curves.length; ci++) total += curves[ci].count;
+    if (!total) return null;
+
+    var geo = trackGeo(dis, new THREE.PlaneGeometry(size * 0.72, size * 1.9));
+    // The quad's origin is its centre; shift it so a leaf pivots at its stalk.
+    geo.translate(0, size * 0.95, 0);
+    var inst = new THREE.InstancedMesh(geo, mat, total);
+    var m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+    var p = new THREE.Vector3(), sc = new THREE.Vector3();
+    var at = 0;
+    for (ci = 0; ci < curves.length; ci++) {
+      var curve = curves[ci].curve, count = curves[ci].count;
+      for (var i = 0; i < count; i++) {
+        var t = CT.clamp((i + 0.5) / count + rng.range(-0.35, 0.35) / count, 0.04, 0.99);
+        curve.getPoint(t, p);
+        // Leaves spiral around the stem as they go, which is both what plants
+        // do and what stops a strand looking like a flat cutout from one angle.
+        e.set(rng.range(-1.2, 1.2), i * 2.4 + rng.range(-0.4, 0.4), rng.range(-2.6, 2.6));
+        q.setFromEuler(e);
+        var k = rng.range(0.7, 1.2);
+        sc.set(k, k, k);
+        m.compose(p, q, sc);
+        inst.setMatrixAt(at++, m);
+      }
+    }
+    inst.instanceMatrix.needsUpdate = true;
+    return inst;
+  }
+
+  /* A curtain of it, hanging off the ceiling. */
+  Cave.prototype._propVines = function (rng, dis) {
+    var g = new THREE.Group();
+    var mats = leafMats(this, dis);
+    var strands = rng.int(6, 13);
+    var parts = [], curves = [];
+    var ident = new THREE.Matrix4();
+    for (var i = 0; i < strands; i++) {
+      var len = rng.range(1.4, 4.2);
+      var ax = rng.range(-0.9, 0.9), az = rng.range(-0.9, 0.9);
+      var ox = rng.range(-0.8, 0.8), oz = rng.range(-0.8, 0.8);
+      var pts = [];
+      var segs = 5;
+      for (var k = 0; k <= segs; k++) {
+        var t = k / segs;
+        // Hangs mostly straight, drifting further off-true the lower it gets.
+        pts.push(new THREE.Vector3(
+          ox + ax * t * t + rng.range(-0.12, 0.12) * t,
+          -len * t,
+          oz + az * t * t + rng.range(-0.12, 0.12) * t
+        ));
+      }
+      var curve = new THREE.CatmullRomCurve3(pts);
+      curves.push({ curve: curve, count: rng.int(9, 20) });
+      parts.push({
+        geo: new THREE.TubeGeometry(curve, 8, rng.range(0.022, 0.055), 4, false),
+        matrix: ident
+      });
+    }
+    g.add(new THREE.Mesh(trackGeo(dis, mergeParts(parts)), mats.stem));
+    var lv = leavesAlong(dis, mats.leaf, curves, rng.range(0.055, 0.115), rng);
+    if (lv) g.add(lv);
+    return g;
+  };
+
+  /* A patch of it on the ground, with a few runners crawling out of the patch. */
+  Cave.prototype._propMoss = function (rng, dis) {
+    var g = new THREE.Group();
+    var mats = leafMats(this, dis);
+
+    // The cushion: squashed lumps, not a flat decal. A decal was what the old
+    // specimen pools were, and a flat disc on a displaced floor is half buried
+    // and half hanging in the air.
+    var clumps = rng.int(7, 16);
+    var lumpGeo = trackGeo(dis, new THREE.IcosahedronGeometry(1, 0));
+    var cushion = new THREE.InstancedMesh(lumpGeo, mats.stem, clumps);
+    var m = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler();
+    var p = new THREE.Vector3(), sc = new THREE.Vector3();
+    for (var c = 0; c < clumps; c++) {
+      var a = rng.range(0, 6.3), rad = c === 0 ? 0 : rng.range(0.15, 1.0);
+      // Icosahedron radius is 1, so this is a half-width: keep it small or a
+      // single clump reads as a lily pad rather than as moss.
+      var w = rng.range(0.14, 0.38);
+      p.set(Math.cos(a) * rad, rng.range(0.02, 0.14), Math.sin(a) * rad);
+      e.set(rng.range(-0.3, 0.3), rng.range(0, 6.3), rng.range(-0.3, 0.3));
+      q.setFromEuler(e);
+      sc.set(w, w * rng.range(0.22, 0.45), w);
+      m.compose(p, q, sc);
+      cushion.setMatrixAt(c, m);
+    }
+    cushion.instanceMatrix.needsUpdate = true;
+    g.add(cushion);
+
+    // Runners: short creepers striking out across the floor from the patch.
+    var runners = rng.int(3, 7);
+    var parts = [], curves = [];
+    var ident = new THREE.Matrix4();
+    for (var i = 0; i < runners; i++) {
+      var dir = rng.range(0, 6.3);
+      var reach = rng.range(0.9, 2.6);
+      var pts = [];
+      for (var k = 0; k <= 4; k++) {
+        var t = k / 4;
+        pts.push(new THREE.Vector3(
+          Math.cos(dir) * reach * t + rng.range(-0.2, 0.2) * t,
+          0.06 + Math.sin(t * 3.1) * 0.12,
+          Math.sin(dir) * reach * t + rng.range(-0.2, 0.2) * t
+        ));
+      }
+      var curve = new THREE.CatmullRomCurve3(pts);
+      curves.push({ curve: curve, count: rng.int(6, 14) });
+      parts.push({
+        geo: new THREE.TubeGeometry(curve, 8, rng.range(0.018, 0.04), 4, false),
+        matrix: ident
+      });
+    }
+    g.add(new THREE.Mesh(trackGeo(dis, mergeParts(parts)), mats.stem));
+    var lv = leavesAlong(dis, mats.leaf, curves, rng.range(0.05, 0.10), rng);
+    if (lv) g.add(lv);
+    return g;
   };
 
   Cave.prototype._propLight = function (rng, dis, wantLight) {
@@ -780,7 +1035,7 @@
     group.add(this._buildWalls(ci, dis));
 
     var s0 = ci * CHUNK_LEN;
-    var propCount = Math.round(rng.int(9, 16) * q.props);
+    var propCount = Math.round(rng.int(18, 30) * q.props);
     var lightBudget = 2;
     var frame = { x: 0, z: 0, h: 0, rx: 1, rz: 0 };
 
@@ -834,38 +1089,50 @@
       var side = rng.sign();
       var wallR = this.radiusAt(sa, side > 0 ? 0 : Math.PI);
       var kind = rng.next();
-      var p = null, yPos = 0, xPos, baseRot = 0;
+      var p = null, yPos = 0, xPos, baseRot = 0, onFloor = false;
 
-      if (kind < 0.13) {
+      if (kind < 0.08) {
         p = this._propContainmentPod(rng, dis);
         xPos = clearOfCorridor(side * rng.range(wallR * 0.45, wallR * 0.8), side);
-      } else if (kind < 0.20) {
+        onFloor = true;
+        // Whatever is in the tank breathes, faintly.
+        animated.push(p);
+      } else if (kind < 0.13) {
         p = this._propGurney(rng, dis);
         xPos = clearOfCorridor(side * rng.range(1.5, wallR * 0.7), side);
-      } else if (kind < 0.30) {
+        onFloor = true;
+      } else if (kind < 0.19) {
         p = this._propBarrel(rng, dis);
         xPos = clearOfCorridor(side * rng.range(1.2, wallR * 0.85), side);
-      } else if (kind < 0.38) {
+        onFloor = true;
+      } else if (kind < 0.24) {
         p = this._propPipes(rng, dis, rng.range(8, 20));
         xPos = side * rng.range(wallR * 0.7, wallR * 0.95);
         yPos = rng.range(1.2, 3.5);
-      } else if (kind < 0.44) {
+      } else if (kind < 0.28) {
         p = this._propSign(rng, dis);
         xPos = side * rng.range(wallR * 0.72, wallR * 0.92);
         yPos = rng.range(1.6, 3.0);
         baseRot = side > 0 ? -Math.PI / 2 : Math.PI / 2;
-      } else if (kind < 0.53) {
-        p = this._propGooPool(rng, dis);
-        xPos = rng.range(-wallR * 0.7, wallR * 0.7);
-        animated.push(p);
-      } else if (kind < 0.68) {
+      } else if (kind < 0.47) {
         p = this._propStalagmite(rng, dis, true);
         xPos = clearOfCorridor(side * rng.range(2.0, wallR * 0.9), side);
-      } else if (kind < 0.76) {
+        onFloor = true;
+      } else if (kind < 0.68) {
         p = this._propStalagmite(rng, dis, false);
         xPos = rng.range(-wallR * 0.8, wallR * 0.8);
         yPos = this.ceilingAt(sa) * rng.range(0.75, 0.95);
-      } else if (kind < 0.85) {
+      } else if (kind < 0.81) {
+        // Hanging vines are exempt from the corridor rule: they are thin, and
+        // a curtain of them across the tunnel is the whole point.
+        p = this._propVines(rng, dis);
+        xPos = rng.range(-wallR * 0.85, wallR * 0.85);
+        yPos = this.ceilingAt(sa) * rng.range(0.8, 0.98);
+      } else if (kind < 0.88) {
+        p = this._propMoss(rng, dis);
+        xPos = rng.range(-wallR * 0.8, wallR * 0.8);
+        onFloor = true;
+      } else if (kind < 0.93) {
         var wantLight = job.lb.n > 0 && rng.bool(0.7);
         if (wantLight) job.lb.n--;
         p = this._propLight(rng, dis, wantLight);
@@ -874,13 +1141,14 @@
         baseRot = side > 0 ? -Math.PI / 2 : Math.PI / 2;
         if (p.userData.pointLight) lights.push(p.userData.pointLight);
         animated.push(p);
-      } else if (kind < 0.92) {
+      } else if (kind < 0.96) {
         p = this._propCables(rng, dis);
         xPos = rng.range(-2, 2);
         yPos = this.ceilingAt(sa) * rng.range(0.6, 0.85);
-      } else if (kind < 0.97) {
+      } else if (kind < 0.99) {
         p = this._propRubble(rng, dis);
         xPos = clearOfCorridor(side * rng.range(2, wallR * 0.7), side);
+        onFloor = true;
       } else {
         p = this._propCatwalk(rng, dis);
         xPos = side * rng.range(1.5, 4);   // overhead, never in the way
@@ -892,8 +1160,13 @@
         // Place through the route's local frame so props sit against the walls
         // and turn with the corridor instead of staying axis-aligned.
         this.frameAt(sa, frame);
-        p.position.set(frame.x + frame.rx * xPos, yPos, frame.z + frame.rz * xPos);
-        if (!baseRot && kind > 0.44 && kind < 0.85) baseRot = rng.range(0, 6.28);
+        var wx = frame.x + frame.rx * xPos, wz = frame.z + frame.rz * xPos;
+        // Anything standing on the ground is seated on the ground. The floor is
+        // displaced noise, not a plane, so props pinned to y=0 sank into a
+        // hollow or stood on stilts over a rise depending on where they landed.
+        if (onFloor) yPos += this.floorAt(wx, wz);
+        p.position.set(wx, yPos, wz);
+        if (!baseRot && kind > 0.28 && kind < 0.88) baseRot = rng.range(0, 6.28);
         p.rotation.y = baseRot + frame.h;
         if (S().get('shadows')) {
           p.traverse(function (o) { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
@@ -928,6 +1201,9 @@
       this._queue = this._queue.filter(function (j) { return j.ci !== ci; });
     }
     this.root.remove(c.group);
+    // Instanced props own a per-instance matrix buffer that is not the shared
+    // geometry, so disposing the geometry alone leaks it.
+    c.group.traverse(function (o) { if (o.isInstancedMesh) o.dispose(); });
     for (var i = 0; i < c.disposables.length; i++) {
       var d = c.disposables[i];
       if (d && d.dispose) d.dispose();

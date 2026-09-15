@@ -256,6 +256,7 @@ audio/                  the music loop, the cave ambience loop, and the rifle sa
 js/audio.js             every sound effect, synthesised from oscillators and noise
 js/difficulty.js        the curve, encounter planning, and a headless pacing simulator
 js/scene.js             renderer, camera rig, lighting, quality plumbing
+js/texture.js           generated surface-detail tiles shared by rock, metal and hide
 js/cave.js              the procedural cave route + ruined-lab dressing, streamed in chunks
 js/effects.js           pooled tracers, impacts, gore, muzzle flash, viewmodel
 js/records.js           the specimen codex and the run archive, persisted to localStorage
