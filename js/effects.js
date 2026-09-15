@@ -11,6 +11,48 @@
   var MAX_TRACERS = 16;
   var _shellV = new THREE.Vector3();
 
+  /* Muzzle flare texture, drawn once.
+   *
+   * The flash used to be an untextured quad, which under additive blending is a
+   * flat lozenge with visible corners — it read as a grey card at the barrel
+   * rather than as light. Additive blending ignores alpha and simply sums RGB,
+   * so the falloff has to be in the COLOUR: white-hot core through amber to
+   * true black at the rim, where it then contributes nothing and the edges of
+   * the quad disappear. */
+  var _flareTex = null;
+  function flareTexture() {
+    if (_flareTex) return _flareTex;
+    var N = 64, c = document.createElement('canvas');
+    c.width = c.height = N;
+    var g = c.getContext('2d');
+    var half = N / 2;
+
+    var grd = g.createRadialGradient(half, half, 0, half, half, half);
+    grd.addColorStop(0.00, 'rgb(255,255,255)');
+    grd.addColorStop(0.30, 'rgb(255,248,226)');
+    grd.addColorStop(0.55, 'rgb(255,190,96)');
+    grd.addColorStop(0.80, 'rgb(96,44,10)');
+    grd.addColorStop(1.00, 'rgb(0,0,0)');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, N, N);
+
+    // A few spokes so it flares rather than reading as a perfect dot.
+    g.globalCompositeOperation = 'lighter';
+    g.strokeStyle = 'rgb(150,100,40)';
+    g.lineCap = 'round';
+    for (var i = 0; i < 4; i++) {
+      var a = (i / 4) * Math.PI * 2 + 0.4;
+      g.lineWidth = i % 2 ? 2 : 3.5;
+      g.beginPath();
+      g.moveTo(half - Math.cos(a) * half * 0.9, half - Math.sin(a) * half * 0.9);
+      g.lineTo(half + Math.cos(a) * half * 0.9, half + Math.sin(a) * half * 0.9);
+      g.stroke();
+    }
+
+    _flareTex = new THREE.CanvasTexture(c);
+    return _flareTex;
+  }
+
   function Effects(stage) {
     this.stage = stage;
     this.root = new THREE.Group();
@@ -220,11 +262,17 @@
     group.add(port);
 
     var flashMat = new THREE.MeshBasicMaterial({
-      color: 0xffd48a, transparent: true, opacity: 0,
+      map: flareTexture(), color: 0xffffff, transparent: true, opacity: 0,
       blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false
     });
+    // The scene is tone-mapped with ACES at 0.82 exposure, which is what keeps
+    // the cave from blowing out — but it also crushes an additive highlight
+    // into a dull smudge. A muzzle flash is the one thing that should be
+    // allowed to clip, so it opts out of tone mapping entirely.
+    flashMat.toneMapped = false;
     var flash = new THREE.Mesh(this.flashGeo, flashMat);
     flash.position.copy(anchor.position);
+    flash.position.z -= 0.03;            // clear of the brake, not over the barrel
     flash.scale.setScalar(0.55);
     flash.renderOrder = 10;
     flash.userData.noShadow = true;
@@ -335,7 +383,12 @@
 
   Effects.prototype._buildFlash = function () {
     // One plane geometry, shared by every muzzle flash.
-    this.flashGeo = new THREE.PlaneGeometry(1.5, 1.5);
+    /* The flash quad sits about two units from the camera, where the whole
+     * visible frame is only ~2.7 units tall. At its old 1.5 size it covered
+     * roughly 40% of the screen height on every shot and painted over the
+     * specimens and their words — it read as a flashbang rather than a muzzle.
+     * Kept deliberately small now: a bright bloom at the brake, nothing more. */
+    this.flashGeo = new THREE.PlaneGeometry(0.5, 0.5);
 
     // Slot 0 is player one (left of screen), slot 1 is player two (right).
     // Solo play uses slot 0's rifle but keeps it on the right, where a single
@@ -420,7 +473,7 @@
     if (!r.group.visible) return;
     r.flashLife = 0.07;
     r.flashMat.opacity = S().get('glow') ? 1.0 : 0.55;
-    r.flash.scale.setScalar(0.42 + (power || 1) * 0.3);
+    r.flash.scale.setScalar(0.40 + (power || 1) * 0.24);
     r.flash.rotation.z = Math.random() * Math.PI * 2;
     r.kick = Math.min(1.2, r.kick + 0.7 * (power || 1));
   };
@@ -524,6 +577,7 @@
     this.ringGeo.dispose();
     for (var r = 0; r < this.rings.length; r++) this.rings[r].mat.dispose();
     this.flashGeo.dispose();
+    if (_flareTex) { _flareTex.dispose(); _flareTex = null; }
     this.shellGeo.dispose();
     this.shellMat.dispose();
     for (var sd = 0; sd < this.shells.length; sd++) this.stage.camera.remove(this.shells[sd].mesh);
