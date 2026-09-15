@@ -403,13 +403,13 @@
     }
   };
 
-  /* Splash where a shot lands: mostly blood, with a little of the specimen's
-   * own luminous fluid so each type still reads as its own thing. */
-  Effects.prototype.impact = function (pos, color, groundY) {
-    this.bloodBurst(pos, 18, 4.0, 0.8, 0.3);
-    this.burst(pos, color || 0x9bff2e, 7, 4.5, 1.0, 9, 0.5);
-    this.burst(pos, 0xfff0c0, 5, 7.0, 1.0, 2, 0.16);
-    this.ring(pos, 0xff3a18, 0.7);
+  /* Splash where a shot lands. Blood and nothing else: these used to also
+   * throw the specimen's own luminous fluid and a few pale sparks, so every
+   * hit came off green, cyan or magenta depending on the creature, with yellow
+   * on top of it. */
+  Effects.prototype.impact = function (pos, groundY) {
+    this.bloodBurst(pos, 20, 4.0, 0.8, 0.3);
+    this.ring(pos, 0x9c1003, 0.7);
     if (Math.random() < 0.35) this.splat(pos, groundY, 0.7);
   };
 
@@ -419,23 +419,28 @@
    * red flash with light behind it so the rock around the kill lights up, a
    * dense cloud of textured blood, solid pieces that tumble and land, and the
    * mess they leave on the floor. */
-  Effects.prototype.gib = function (pos, color, big, groundY) {
-    var p = big ? 1 : 0;
+  Effects.prototype.gib = function (pos, big, groundY) {
+    this.bloodBurst(pos, big ? 260 : 95, big ? 8.5 : 5.5, big ? 1.7 : 1.2, big ? 0.62 : 0.42);
 
-    this.bloodBurst(pos, big ? 240 : 85, big ? 8.5 : 5.5, big ? 1.7 : 1.2, big ? 0.62 : 0.42);
-    // A little of its own fluid, so a goo crawler and a security husk do not
-    // burst identically.
-    this.burst(pos, color || 0x9bff2e, big ? 34 : 12, big ? 7 : 4.5, 1.0, 11, big ? 1.2 : 0.8);
-    // Embers, which is what sells it as an explosion rather than a splash.
-    this.burst(pos, 0xff7a24, big ? 40 : 14, big ? 10 : 7, 1.0, 6, big ? 0.55 : 0.32);
+    /* Embers, which is what sells it as an explosion rather than a splash.
+     * Kept almost pure red on purpose: these are additively blended, so where
+     * a lot of them overlap their channels sum, and any green in the colour
+     * turns the core of the burst orange and then yellow-white. With green and
+     * blue near zero the densest part of the burst still reads as red. */
+    this.burst(pos, 0xd80600, big ? 48 : 18, big ? 10 : 7, 1.0, 6, big ? 0.55 : 0.32);
 
     this.chunkBurst(pos, big ? 14 : 6, big ? 7 : 5, groundY);
 
     var splats = big ? 5 : 2;
     for (var i = 0; i < splats; i++) this.splat(pos, groundY, big ? 3.2 : 1.5);
 
-    this.ring(pos, 0xff2a10, big ? 4.0 : 1.9);
-    this.ring(pos, 0xffb070, big ? 2.4 : 1.1);
+    /* Deliberately well under full red. The rings are additive and the
+     * renderer is ACES tone mapped, which rolls a high-luminance red off
+     * toward orange and then toward yellow-white - so a ring authored at
+     * 0xff2008 arrives on screen as a tan hoop. Dropped to here it stays
+     * red through the tone curve. */
+    this.ring(pos, 0xa81204, big ? 4.0 : 1.9);
+    this.ring(pos, 0x700a02, big ? 2.4 : 1.1);
 
     this.killLight.position.copy(pos);
     this.killLight.intensity = big ? 14 : 6;
@@ -450,7 +455,7 @@
     this.ringGeo = geo;
     for (var i = 0; i < 10; i++) {
       var mat = new THREE.MeshBasicMaterial({
-        color: 0x9bff2e, transparent: true, opacity: 0, side: THREE.DoubleSide,
+        color: 0xa81204, transparent: true, opacity: 0, side: THREE.DoubleSide,
         blending: THREE.AdditiveBlending, depthWrite: false
       });
       var m = new THREE.Mesh(geo, mat);

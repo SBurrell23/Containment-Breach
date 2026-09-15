@@ -320,17 +320,6 @@
       if (m) { m.transparent = m.transparent || false; }
     }
 
-    this.gooColor = 0x9bff2e;
-    try {
-      var pmats = built.materials || [];
-      for (var p = 0; p < pmats.length; p++) {
-        if (pmats[p].emissive && pmats[p].emissiveIntensity > 0.5) {
-          this.gooColor = pmats[p].emissive.getHex();
-          break;
-        }
-      }
-    } catch (e2) { /* keep default */ }
-
     this.group.visible = false;
     world.root.add(this.group);
     this.syncTransform();

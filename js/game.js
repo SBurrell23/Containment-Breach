@@ -319,7 +319,7 @@
     // The floor is displaced noise, so gore needs to be told where the ground
     // under this specimen actually is or it lands in the air.
     var groundY = this.cave ? this.cave.floorAt(m.group.position.x, m.group.position.z) : 0;
-    this.effects.impact(hitPos, m.gooColor, groundY);
+    this.effects.impact(hitPos, groundY);
 
     if (killed && slot === this.mySlot && CT.Records) {
       CT.Records.noteKill(m.def.id, this.encounterIndex + 1);
@@ -328,7 +328,7 @@
     if (killed) {
       var center = m.headWorld(new THREE.Vector3());
       center.y -= m.height * 0.3;
-      this.effects.gib(center, m.gooColor, m.boss, groundY);
+      this.effects.gib(center, m.boss, groundY);
       CT.Audio.shotHeavy(pan);
       CT.Audio.death(pan, m.boss);
       this.stage.addShake(m.boss ? 1.0 : 0.22);
