@@ -37,9 +37,12 @@ The page is written as classic scripts with no ES modules and no `fetch`, so ope
 `index.html` directly off disk should work too; serving it over HTTP is the path
 that has actually been tested, and is what the two-player link expects.
 
-Two things load from cdnjs: **three.js r128** and **PeerJS 1.5.4**. The game refuses
-to start with a clear message if three.js is missing. PeerJS is only needed for
-room-code multiplayer — solo play and the Direct Link fallback work without it.
+Three things load from a CDN: **three.js r128** and **PeerJS 1.5.4** from cdnjs, and
+**JetBrains Mono / Chakra Petch** from Google Fonts. The game refuses to start with a
+clear message if three.js is missing. PeerJS is only needed for room-code multiplayer
+— solo play and the Direct Link fallback work without it. The fonts fall back to the
+system monospace and a condensed sans if they do not load; nothing breaks, it just
+looks less deliberate.
 
 ---
 
@@ -138,6 +141,20 @@ The 100 WPM row is five runs; the others are single runs, so treat them as indic
 Run-to-run spread is real and mostly comes from which specimens a chamber rolls — a
 chamber of slow `TENDRIL STALK`s is a very different problem from one of fast
 `LAB RAT`s carrying the same number of words.
+
+### Type
+
+The words are set in **JetBrains Mono**, and that is a gameplay decision rather than a
+cosmetic one. It is monospaced, so recolouring the typed prefix never reflows the rest
+of the word under the player's eye, and it draws hard distinctions exactly where a
+typing game punishes ambiguity: `l` / `1` / `I`, `0` / `O`, `rn` / `m`. Ligatures are
+disabled globally — late-game words are full of hyphens and underscores
+(`SPEC-57X`, `failsafe_sterilize`) and a font that fuses those into a single glyph
+stops showing you the keys you actually have to press.
+
+Signage, headings and readouts use **Chakra Petch**, a squared-off industrial face
+that suits a facility falling apart. Every number that updates live is set
+`tabular-nums` so the HUD stops twitching as the digits change.
 
 Word difficulty escalates in stages rather than just getting longer: common short
 words, then facility jargon, then hyphenated compounds, then capitalisation (which

@@ -41,15 +41,24 @@
     this.pool.push(entry);
   };
 
-  /* Estimated on-screen size of a label. The font is monospace, so character
-   * count times advance width is exact enough to de-overlap against without
-   * forcing a layout read every frame. */
+  /* Estimated on-screen size of a label, used only to de-overlap labels against
+   * each other — cheap enough to run every frame, unlike reading offsetWidth.
+   *
+   * The word line is JetBrains Mono, whose advance is a flat 0.6em, so character
+   * count times size plus letter-spacing is exact. The name line is Chakra Petch,
+   * which is proportional; 0.52em is its measured average for the upper-case
+   * specimen names this renders, and it only ever matters when a long name is
+   * wider than the word beneath it. */
+  var WORD_ADVANCE = 0.6, WORD_TRACKING = 0.5;
+  var NAME_ADVANCE = 0.52, NAME_TRACKING = 1.8;
+
   function labelMetrics(it, far) {
     var big = document.body.classList.contains('bigtext');
     var fs = it.boss ? (big ? 31 : 24) : (far ? (big ? 20 : 15) : (big ? 25 : 19));
-    var wordW = (it.word ? it.word.length : 0) * fs * 0.62 + 10;
-    var nameW = (it.name ? it.name.length : 0) * (it.boss ? 11 : 9) * 0.62 + 10;
-    return { w: Math.max(wordW, nameW, 50), h: fs + 26 };
+    var nfs = it.boss ? 11 : 10;
+    var wordW = (it.word ? it.word.length : 0) * (fs * WORD_ADVANCE + WORD_TRACKING) + 12;
+    var nameW = (it.name ? it.name.length : 0) * (nfs * NAME_ADVANCE + NAME_TRACKING) + 12;
+    return { w: Math.max(wordW, nameW, 50), h: fs + 28 };
   }
 
   /* items: [{key, word, typed, typedBySlot, error, hpFrac, name, boss, worldPos, kind}] */

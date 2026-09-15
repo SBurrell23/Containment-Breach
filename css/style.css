@@ -12,10 +12,23 @@
   --warn:      #d8c528;
   --blood:     #ff3b2e;
   --acid:      #9bff2e;
-  --font:      'Consolas', 'SF Mono', 'Menlo', 'DejaVu Sans Mono', monospace;
+  /* Two families, chosen for what this game actually asks of type.
+     JetBrains Mono carries every word the player has to reproduce exactly: it is
+     monospaced (so a word does not reflow as the typed prefix is recoloured) and
+     it disambiguates the pairs that cost you a life in a typing game - l/1/I,
+     0/O, rn/m. Chakra Petch is the squared-off industrial display face for
+     signage, headings and readouts, where legibility at a glance matters more
+     than character-by-character precision. */
+  --font:      'JetBrains Mono', 'Consolas', 'SF Mono', 'Menlo', 'DejaVu Sans Mono', monospace;
+  --font-disp: 'Chakra Petch', 'Oswald', 'Arial Narrow', 'Segoe UI', sans-serif;
 }
 
 * { box-sizing: border-box; }
+
+/* Never ligate. JetBrains Mono would happily fuse the hyphens and underscores
+   that late-game words are full of (SPEC-57X, failsafe_sterilize) into glyphs
+   that no longer map one-to-one onto the keys you have to press. */
+* { font-variant-ligatures: none; font-feature-settings: 'liga' 0, 'calt' 0; }
 
 html, body {
   margin: 0; padding: 0;
@@ -76,8 +89,9 @@ body.playing { cursor: none; }
 }
 
 .mlabel .mname {
-  font-size: 9px; letter-spacing: 1.6px; color: var(--ink-dim);
-  text-transform: uppercase; margin-bottom: 2px; opacity: 0.85;
+  font-family: var(--font-disp);
+  font-size: 10px; font-weight: 600; letter-spacing: 1.8px; color: var(--ink-dim);
+  text-transform: uppercase; margin-bottom: 2px; opacity: 0.9;
 }
 
 .mlabel .mhp {
@@ -93,7 +107,7 @@ body.playing { cursor: none; }
 }
 
 .mlabel .mword {
-  font-size: 19px; font-weight: 700; letter-spacing: 1px;
+  font-size: 19px; font-weight: 800; letter-spacing: 0.5px;
   color: #f2f7f4;
   text-shadow: 0 0 10px rgba(0,0,0,0.98), 0 1px 2px #000;
   padding: 1px 4px;
@@ -153,14 +167,19 @@ body.contrast .mlabel .mname { color: #cfe4dd; opacity: 1; }
 #enc-readout, #run-readout { display: flex; flex-direction: column; gap: 1px; }
 #run-readout { text-align: right; }
 #enc-readout .lbl, #run-readout .lbl {
-  font-size: 9px; letter-spacing: 3px; color: var(--ink-dim);
+  font-family: var(--font-disp);
+  font-size: 10px; font-weight: 600; letter-spacing: 3px; color: var(--ink-dim);
 }
 #enc-num, #score {
-  font-size: 30px; line-height: 1; font-weight: 700; color: var(--ink);
+  font-family: var(--font-disp);
+  font-size: 32px; line-height: 1; font-weight: 700; color: var(--ink);
+  font-variant-numeric: tabular-nums;
   text-shadow: 0 0 12px rgba(125,255,74,0.28);
 }
 #enc-tag {
-  font-size: 10px; letter-spacing: 2px; color: var(--warn); min-height: 12px;
+  font-family: var(--font-disp);
+  font-size: 11px; font-weight: 600; letter-spacing: 2px; color: var(--warn);
+  min-height: 12px;
 }
 #enc-tag.boss { color: var(--blood); animation: pulse 1s ease-in-out infinite; }
 
@@ -168,7 +187,8 @@ body.contrast .mlabel .mname { color: #cfe4dd; opacity: 1; }
 
 #boss-bar { flex: 1; max-width: 620px; text-align: center; }
 #boss-name {
-  font-size: 13px; letter-spacing: 5px; color: var(--blood);
+  font-family: var(--font-disp);
+  font-size: 14px; font-weight: 700; letter-spacing: 5px; color: var(--blood);
   margin-bottom: 5px; text-shadow: 0 0 14px rgba(255,59,46,0.5);
 }
 #boss-hp {
@@ -208,9 +228,12 @@ body.contrast .mlabel .mname { color: #cfe4dd; opacity: 1; }
 .pcard.p2.me { border-color: rgba(54,224,255,0.3); }
 
 .pcard .prow { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
-.pcard .pname { font-size: 10px; letter-spacing: 2.4px; color: var(--p1); }
+.pcard .pname {
+  font-family: var(--font-disp);
+  font-size: 11px; font-weight: 700; letter-spacing: 2.4px; color: var(--p1);
+}
 .pcard.p2 .pname { color: var(--p2); }
-.pcard .phpnum { font-size: 11px; color: var(--ink-dim); }
+.pcard .phpnum { font-size: 11px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
 .pcard .phpbar {
   height: 9px; margin-top: 5px; background: rgba(0,0,0,0.75);
   border: 1px solid rgba(120,160,150,0.25); padding: 1px;
@@ -228,7 +251,7 @@ body.contrast .mlabel .mname { color: #cfe4dd; opacity: 1; }
 
 #typebar { text-align: center; min-height: 34px; }
 #typebar-word {
-  font-size: 23px; font-weight: 700; letter-spacing: 3px; min-height: 28px;
+  font-size: 23px; font-weight: 800; letter-spacing: 2px; min-height: 28px;
   text-shadow: 0 0 16px rgba(0,0,0,0.9);
 }
 #typebar-word b { color: var(--p1); }
@@ -243,12 +266,13 @@ body.is-p2 #typebar-word b { color: var(--p2); }
 
 #perf {
   display: flex; gap: 16px; font-size: 10px; letter-spacing: 1.6px;
-  color: var(--ink-dim); min-height: 12px;
+  color: var(--ink-dim); min-height: 12px; font-variant-numeric: tabular-nums;
 }
 
 #toast {
   position: absolute; left: 50%; top: 27%; transform: translateX(-50%);
-  font-size: 22px; letter-spacing: 6px; color: var(--warn);
+  font-family: var(--font-disp);
+  font-size: 25px; font-weight: 700; letter-spacing: 6px; color: var(--warn);
   text-shadow: 0 0 20px rgba(216,197,40,0.5), 0 2px 4px #000;
   opacity: 0; transition: opacity 0.35s; text-align: center; white-space: pre-line;
 }
@@ -284,15 +308,20 @@ body.is-p2 #typebar-word b { color: var(--p2); }
 .panel.center { text-align: center; align-items: center; }
 
 .panel h2 {
-  margin: 0; font-size: 15px; letter-spacing: 6px; font-weight: 700;
+  margin: 0; font-family: var(--font-disp);
+  font-size: 17px; letter-spacing: 6px; font-weight: 700;
   color: var(--acid); text-transform: uppercase;
 }
 
 .logo { text-align: center; }
-.logo-sub { font-size: 10px; letter-spacing: 7px; color: var(--ink-dim); }
+.logo-sub {
+  font-family: var(--font-disp);
+  font-size: 11px; font-weight: 600; letter-spacing: 7px; color: var(--ink-dim);
+}
 .logo h1 {
-  margin: 8px 0 0; font-size: clamp(42px, 8.5vw, 74px); line-height: 0.92;
-  letter-spacing: 6px; font-weight: 700; color: var(--ink);
+  margin: 8px 0 0; font-family: var(--font-disp);
+  font-size: clamp(44px, 9vw, 78px); line-height: 0.92;
+  letter-spacing: 4px; font-weight: 700; color: var(--ink);
   text-shadow: 0 0 34px rgba(125,255,74,0.28);
 }
 .logo h1 span { color: var(--acid); }
@@ -311,7 +340,7 @@ body.is-p2 #typebar-word b { color: var(--p2); }
 .menu.row.tight { margin-top: -4px; }
 
 .btn {
-  font-family: var(--font); font-size: 12px; letter-spacing: 3.4px; font-weight: 700;
+  font-family: var(--font-disp); font-size: 13px; letter-spacing: 3.4px; font-weight: 700;
   padding: 13px 22px; cursor: pointer;
   color: var(--ink); background: rgba(18,30,28,0.65);
   border: 1px solid rgba(120,160,150,0.3);
@@ -330,10 +359,15 @@ body.is-p2 #typebar-word b { color: var(--p2); }
 .btn[disabled] { opacity: 0.35; cursor: not-allowed; }
 
 .foot {
-  display: flex; gap: 10px; justify-content: center; align-items: center;
+  display: flex; gap: 6px 10px; justify-content: center; align-items: center;
+  flex-wrap: wrap; text-align: center;
   font-size: 10px; letter-spacing: 1.6px; color: var(--ink-dim);
 }
+.foot > span { white-space: nowrap; }
 .foot .sep { opacity: 0.4; }
+/* Once the two readouts no longer fit side by side, drop the separator rather
+   than leave it stranded at the end of a line. */
+@media (max-width: 560px) { .foot .sep { display: none; } }
 
 .scroller { overflow-y: auto; padding-right: 8px; flex: 1; min-height: 0; }
 .scroller::-webkit-scrollbar { width: 8px; }
@@ -357,7 +391,8 @@ kbd {
 
 .opt-group { margin-bottom: 20px; }
 .opt-group h3 {
-  margin: 0 0 11px; font-size: 10px; letter-spacing: 4px; color: var(--acid);
+  margin: 0 0 11px; font-family: var(--font-disp); font-weight: 700;
+  font-size: 11px; letter-spacing: 4px; color: var(--acid);
   border-bottom: 1px solid var(--panel-b); padding-bottom: 7px; font-weight: 700;
 }
 .opt-row {
@@ -373,7 +408,7 @@ kbd {
 }
 
 .toggle {
-  font-family: var(--font); font-size: 10px; letter-spacing: 2.2px; font-weight: 700;
+  font-family: var(--font-disp); font-size: 11px; letter-spacing: 2.2px; font-weight: 700;
   width: 62px; padding: 6px 0; cursor: pointer;
   background: rgba(0,0,0,0.5); color: var(--ink-dim);
   border: 1px solid rgba(120,160,150,0.3);
@@ -402,7 +437,7 @@ select {
 
 .mp-tabs { display: flex; gap: 1px; background: var(--panel-b); }
 .tab {
-  flex: 1; font-family: var(--font); font-size: 10px; letter-spacing: 2.4px; font-weight: 700;
+  flex: 1; font-family: var(--font-disp); font-size: 11px; letter-spacing: 2.4px; font-weight: 700;
   padding: 10px 6px; cursor: pointer; color: var(--ink-dim);
   background: rgba(8,14,17,0.9); border: 0;
 }
@@ -415,10 +450,14 @@ select {
 
 .code-display { text-align: center; padding: 14px 0; }
 #room-code {
-  font-size: 50px; letter-spacing: 14px; font-weight: 700; color: var(--acid);
+  font-size: 50px; letter-spacing: 14px; font-weight: 800; color: var(--acid);
+  font-variant-numeric: tabular-nums;
   text-shadow: 0 0 26px rgba(125,255,74,0.35); padding-left: 14px;
 }
-.code-label { font-size: 9px; letter-spacing: 4px; color: var(--ink-dim); margin-top: 4px; }
+.code-label {
+  font-family: var(--font-disp); font-weight: 600;
+  font-size: 10px; letter-spacing: 4px; color: var(--ink-dim); margin-top: 4px;
+}
 
 .code-input {
   font-family: var(--font); font-size: 36px; letter-spacing: 12px; font-weight: 700;
@@ -449,7 +488,8 @@ textarea:focus { border-color: var(--acid); color: var(--ink); }
 }
 .lobby-row {
   display: flex; align-items: center; gap: 10px;
-  font-size: 11px; letter-spacing: 2px; color: var(--ink-dim);
+  font-family: var(--font-disp); font-weight: 600;
+  font-size: 12px; letter-spacing: 2px; color: var(--ink-dim);
 }
 .lobby-row span:nth-child(2) { flex: 1; }
 .lobby-row span:last-child { color: var(--ink); }
@@ -475,10 +515,12 @@ textarea:focus { border-color: var(--acid); color: var(--ink); }
 
 #over-title { color: var(--blood); }
 #over-depth {
-  text-align: center; font-size: 13px; letter-spacing: 3px; color: var(--ink-dim);
+  text-align: center; font-family: var(--font-disp); font-weight: 600;
+  font-size: 13px; letter-spacing: 3px; color: var(--ink-dim);
 }
 #over-depth b {
-  display: block; font-size: 52px; letter-spacing: 4px; color: var(--ink);
+  display: block; font-family: var(--font-disp);
+  font-size: 56px; font-weight: 700; letter-spacing: 4px; color: var(--ink);
   margin: 6px 0 2px; text-shadow: 0 0 26px rgba(255,59,46,0.3);
 }
 .stats-grid {
@@ -488,8 +530,15 @@ textarea:focus { border-color: var(--acid); color: var(--ink); }
   background: rgba(0,0,0,0.4); border: 1px solid var(--panel-b);
   padding: 10px 12px; text-align: center;
 }
-.stat .sv { font-size: 21px; font-weight: 700; color: var(--ink); }
-.stat .sl { font-size: 9px; letter-spacing: 2.2px; color: var(--ink-dim); margin-top: 3px; }
+.stat .sv {
+  font-family: var(--font-disp);
+  font-size: 23px; font-weight: 700; color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.stat .sl {
+  font-family: var(--font-disp); font-weight: 600;
+  font-size: 10px; letter-spacing: 2.2px; color: var(--ink-dim); margin-top: 3px;
+}
 .stat.hl .sv { color: var(--acid); }
 
 #fatal {
