@@ -1,5 +1,7 @@
 # CAVE TYPER
 
+### [▶ Play it](https://sburrell23.github.io/Cave-Typer/)
+
 A typing rail-shooter. The containment field in a deep cave research lab failed at
 03:14 and everything in the vivarium got out. Your rifle fires on dictation: a word
 floats over every specimen's head, and finishing that word is one gunshot into it.
@@ -15,7 +17,7 @@ audio file in the project.
 
 ---
 
-## Running it
+## Running it locally
 
 ```bash
 node tools/serve.js
@@ -209,6 +211,17 @@ For real numbers, drive the actual game. `window.CaveTyper._debug()` returns
 `{ stage, game }`, and stepping `game.update(dt)` by hand plays the game as fast as
 the machine can run it — that is how the pacing table above was measured, and how
 the two-player sync was verified with two browser tabs stepped alternately.
+
+---
+
+## Deployment
+
+Pushing to `main` publishes to <https://sburrell23.github.io/Cave-Typer/> via
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). The workflow stages
+only what the browser needs — `index.html`, `css/`, `js/` — so the dev server and the
+tooling are not published. Before uploading it checks that every script the page
+references actually exists in the artifact and that all of them parse, so a typo in a
+`<script>` tag fails the build rather than shipping a blank page.
 
 ---
 
