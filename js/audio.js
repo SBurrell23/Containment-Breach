@@ -1,6 +1,6 @@
 /* Cave Typer — every sound effect synthesised at runtime, plus one scored loop.
  *
- * Bus layout:   [voice] -> sfx|music gain -> master gain -> compressor -> out
+ * Bus layout:   [voice] -> sfx|ambience|music gain -> master gain -> compressor -> out
  *
  * Every effect — the impacts, the deaths, the growls, the UI — is built from
  * oscillators and one shared white-noise buffer. Two things are sampled: the
@@ -11,11 +11,12 @@
   var CT = (global.CaveTyper = global.CaveTyper || {});
 
   var ctx = null;
-  var master, comp, busSfx, busMusic;
+  var master, comp, busSfx, busAmb, busMusic;
   var noiseBuf = null;
   var started = false;
   var musicState = null;      // synthesised drone (fallback / no-file mode)
-  var trackState = null;      // the scored loop
+  var trackState = null;      // the scored music loop
+  var ambState = null;        // the cave ambience loop
   var enabled = true;
 
   var TRACK_URL = 'audio/deep-cave-echoes.mp3';
@@ -23,7 +24,15 @@
   // slider so even at 100% it stays behind the rifle and the specimens.
   var TRACK_GAIN = 0.34;
 
+  var AMB_URL = 'audio/cave-ambience.mp3';
+  // The ambience is a bed under everything; this sits below its own slider.
+  var AMB_GAIN = 0.55;
+
   var SHOT_URL = 'audio/gunshot.mp3';
+  // Per-shot level, under the SFX slider. The rifle fires constantly, so it has
+  // to leave room for everything else rather than sit on top of the mix.
+  var SHOT_GAIN = 0.64;
+  var SHOT_HEAVY_GAIN = 0.75;
   var shotBuf = null;          // decoded one-shot, null until it loads
   var shotLoad = 'idle';       // idle | loading | ready | failed
 
@@ -48,6 +57,7 @@
     master.connect(comp);
 
     busSfx = ctx.createGain(); busSfx.gain.value = 0.9; busSfx.connect(master);
+    busAmb = ctx.createGain(); busAmb.gain.value = 0.5; busAmb.connect(master);
     busMusic = ctx.createGain(); busMusic.gain.value = 0.45; busMusic.connect(master);
 
     // 2 s of white noise, reused by every noise-based voice.
@@ -63,6 +73,7 @@
   function applyVolumes() {
     var s = S();
     var mv = s ? s.getNum('musicVolume') : 0.4;
+    var av = s ? s.getNum('ambienceVolume') : 0.5;
     var mas = s ? s.getNum('masterVolume') : 0.8;
 
     // An element that could not be routed into the graph never passes through
@@ -70,9 +81,13 @@
     if (trackState && !trackState.routed) {
       try { trackState.el.volume = Math.max(0, Math.min(1, mas * mv * TRACK_GAIN)); } catch (e) {}
     }
+    if (ambState && !ambState.routed) {
+      try { ambState.el.volume = Math.max(0, Math.min(1, mas * av * AMB_GAIN)); } catch (e) {}
+    }
     if (!ctx) return;
     master.gain.setTargetAtTime(mas, ctx.currentTime, 0.02);
     busSfx.gain.setTargetAtTime(s ? s.getNum('sfxVolume') : 0.9, ctx.currentTime, 0.02);
+    busAmb.gain.setTargetAtTime(av, ctx.currentTime, 0.05);
     busMusic.gain.setTargetAtTime(mv, ctx.currentTime, 0.05);
   }
 
@@ -119,6 +134,79 @@
     src.connect(g); g.connect(dest);
     src.start();
     return src;
+  }
+
+  /* A looping <audio> element routed into the graph.
+   *
+   * Both long sounds — the music and the cave ambience — are streamed from an
+   * element rather than decoded into a buffer: five minutes of PCM is tens of
+   * megabytes of RAM for something that only ever plays back linearly.
+   *
+   * Routing the element through WebAudio is what lets a bus gain and a filter
+   * apply to it, but createMediaElementSource on a file:// page yields silence
+   * in Chrome (the element's origin is opaque). On that protocol the element is
+   * left unrouted and driven by its own .volume instead, which is why
+   * applyVolumes has a hand-rolled branch for it. */
+  function startStreamLoop(url, bus, gain, onFail, filterCfg) {
+    var el = new global.Audio();
+    el.src = url;
+    el.loop = true;
+    el.preload = 'auto';
+    el.crossOrigin = 'anonymous';
+
+    var st = { el: el, routed: false, gain: null, filter: null,
+               failed: false, disposed: false, intensity: 0 };
+
+    // Bound to `st`, not to a module variable: tearing a loop down sets
+    // el.src = '' which fires a *late* error event, long after the module
+    // reference has been nulled.
+    el.addEventListener('error', function () {
+      if (st.disposed) return;            // teardown, not a real failure
+      st.failed = true;
+      if (onFail) onFail(st);
+    });
+
+    if (ctx && global.location.protocol !== 'file:') {
+      try {
+        var src = ctx.createMediaElementSource(el);
+        var g = ctx.createGain();
+        g.gain.value = gain;
+        if (filterCfg) {
+          var flt = ctx.createBiquadFilter();
+          flt.type = filterCfg.type;
+          flt.frequency.value = filterCfg.freq;
+          flt.Q.value = filterCfg.q;
+          src.connect(flt); flt.connect(g);
+          st.filter = flt;
+        } else {
+          src.connect(g);
+        }
+        g.connect(bus);
+        st.routed = true;
+        st.gain = g;
+      } catch (e) {
+        st.routed = false;
+      }
+    }
+
+    var p = el.play();
+    if (p && p.catch) p.catch(function () { /* autoplay gate; resume() retries */ });
+    return st;
+  }
+
+  function stopStreamLoop(st) {
+    if (!st) return;
+    st.disposed = true;
+    try { st.el.pause(); } catch (e) {}
+    try { st.el.removeAttribute('src'); st.el.load(); } catch (e) {}
+  }
+
+  function nudgeStreamLoop(st) {
+    if (!st || st.failed || st.disposed) return;
+    if (st.el.paused) {
+      var p = st.el.play();
+      if (p && p.catch) p.catch(function () {});
+    }
   }
 
   /* ---- primitive voices -------------------------------------------------- */
@@ -217,7 +305,7 @@
       if (shotLoad === 'ready') {
         // +/- ~11% pitch and a little level variation. Enough that no two shots
         // are identical, tight enough that it still reads as one weapon.
-        playShot(d, 0.90 + Math.random() * 0.22, 0.85 * power * (0.9 + Math.random() * 0.2));
+        playShot(d, 0.90 + Math.random() * 0.22, SHOT_GAIN * power * (0.9 + Math.random() * 0.2));
         // The cave keeps its own tail on the sample, which is recorded dry.
         noise(d, 0.42, 0.055 * power, 'lowpass', 850, 220, 0.6);
         return;
@@ -233,7 +321,7 @@
       if (shotLoad === 'ready') {
         // Same recording pitched down and driven harder: a heavier round out of
         // the same rifle, rather than an unrelated sound.
-        playShot(d, 0.74 + Math.random() * 0.13, 1.0 * (0.92 + Math.random() * 0.16));
+        playShot(d, 0.74 + Math.random() * 0.13, SHOT_HEAVY_GAIN * (0.92 + Math.random() * 0.16));
         // Synthesised low end underneath for the weight the sample cannot carry.
         tone(d, 'sine', 132, 30, 0.34, 0.5);
         noise(d, 0.85, 0.1, 'lowpass', 700, 160, 0.5);
@@ -425,69 +513,55 @@
 
     startTrack: function () {
       if (!TRACK_URL || trackState) return false;
-      var el = new global.Audio();
-      el.src = TRACK_URL;
-      el.loop = true;
-      el.preload = 'auto';
-      el.crossOrigin = 'anonymous';
-
-      var st = { el: el, routed: false, gain: null, filter: null,
-                 failed: false, disposed: false, intensity: 0 };
-      trackState = st;
-
-      // Bound to `st`, not to the module variable: tearing the track down sets
-      // el.src = '' which fires a *late* error event, by which point
-      // trackState is already null and the old code threw on it.
-      el.addEventListener('error', function () {
-        if (st.disposed) return;              // teardown, not a real failure
-        st.failed = true;
+      trackState = startStreamLoop(TRACK_URL, busMusic, TRACK_GAIN, function (st) {
         // Nothing scored is playing, so bring the synthesised drone up instead.
         if (trackState === st && !musicState) Audio.startDrone();
-      });
-
-      if (ctx && global.location.protocol !== 'file:') {
-        try {
-          var src = ctx.createMediaElementSource(el);
-          var flt = ctx.createBiquadFilter();
-          flt.type = 'lowpass';
-          flt.frequency.value = 2400;
-          flt.Q.value = 0.7;
-          var g = ctx.createGain();
-          g.gain.value = TRACK_GAIN;
-          src.connect(flt); flt.connect(g); g.connect(busMusic);
-          trackState.routed = true;
-          trackState.gain = g;
-          trackState.filter = flt;
-        } catch (e) {
-          trackState.routed = false;
-        }
-      }
-
+      }, { type: 'lowpass', freq: 2400, q: 0.7 });
       if (!trackState.routed) applyVolumes();   // drive el.volume directly
-      var p = el.play();
-      if (p && p.catch) {
-        p.catch(function () {
-          // Autoplay blocked — retry on the next user gesture via resume().
-        });
-      }
       return true;
     },
 
     stopTrack: function () {
-      if (!trackState) return;
-      trackState.disposed = true;
-      try { trackState.el.pause(); } catch (e) {}
-      try { trackState.el.removeAttribute('src'); trackState.el.load(); } catch (e) {}
+      stopStreamLoop(trackState);
       trackState = null;
     },
 
     /* Called by init/resume: browsers refuse play() until a user gesture. */
     _nudgeTrack: function () {
-      if (!trackState || trackState.failed) return;
-      if (trackState.el.paused) {
-        var p = trackState.el.play();
-        if (p && p.catch) p.catch(function () {});
-      }
+      nudgeStreamLoop(trackState);
+      nudgeStreamLoop(ambState);
+    },
+
+    /* ---- cave ambience ----------------------------------------------------
+     * A five-minute loop, crossfaded at the seam so the wrap is inaudible. It
+     * has no fallback: if it cannot load the cave is simply quiet, which is a
+     * better failure than a synthesised approximation fighting the real thing
+     * on every other machine. */
+
+    startAmbience: function () {
+      if (ambState && !ambState.failed) { nudgeStreamLoop(ambState); return; }
+      if (ambState) return;
+      ambState = startStreamLoop(AMB_URL, busAmb, AMB_GAIN, null, null);
+      if (!ambState.routed) applyVolumes();
+    },
+
+    stopAmbience: function () {
+      stopStreamLoop(ambState);
+      ambState = null;
+    },
+
+    ambienceInfo: function () {
+      if (!ambState) return { present: false };
+      var el = ambState.el;
+      return {
+        present: true, routed: ambState.routed, failed: ambState.failed,
+        paused: el.paused, loop: el.loop,
+        currentTime: +el.currentTime.toFixed(2),
+        duration: isNaN(el.duration) ? null : +el.duration.toFixed(1),
+        elementVolume: +el.volume.toFixed(3),
+        graphGain: ambState.gain ? +ambState.gain.gain.value.toFixed(3) : null,
+        error: el.error ? el.error.code : null
+      };
     },
 
     startMusic: function () {
@@ -576,6 +650,7 @@
 
     stopAll: function () {
       Audio.stopMusic();
+      Audio.stopAmbience();
     },
 
     shotInfo: function () {

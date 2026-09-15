@@ -110,6 +110,7 @@
     this.effects.setWeaponVisible(true);
 
     CT.Audio.init();
+    CT.Audio.startAmbience();
     CT.Audio.startMusic();
 
     this._buildDownMarkers();
@@ -305,6 +306,7 @@
     // much as your own: the recoil is theirs, not yours.
     var from = this.effects.muzzleWorld(new THREE.Vector3(), slot);
     this.effects.muzzleFlash(killed ? 1.5 : 1, slot);
+    this.effects.ejectShell(slot);
     if (slot === this.mySlot) this.stage.fireFeedback(killed ? 1.4 : 1);
     else this.stage.addShake(0.05);
     this.effects.tracer(from, hitPos, color);

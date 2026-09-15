@@ -74,6 +74,9 @@ looks less deliberate.
   your health and does not stop. Kill the closest threat first.
 - Clearing a chamber patches you up a little — never all the way. Damage accumulates
   across a run.
+- **Every shot ejects a casing** from the ejection port on the outboard side of the
+  rifle — left for player one, right for player two, right in solo. In co-op it is a
+  second way to tell at a glance which of you just fired.
 - **The cave actually goes somewhere.** Every one to three chambers the route turns a
   hard corner, and the tunnel narrows to a passage you cannot see past before opening
   into the next chamber. Turns only ever happen between chambers, never inside the
@@ -160,7 +163,8 @@ rather than preference: the fog is the draw distance, and a wider FOV shrinks ev
 specimen and every word label at exactly the moment the game is asking you to read
 them.
 
-**Audio** — master, weapon/monster SFX, music, and keystroke clicks, all independent.
+**Audio** — master, weapon/monster SFX, cave ambience, music, and keystroke clicks,
+all independent.
 
 The rifle is a sampled one-shot, pitched randomly by about ±11% on every shot so that
 thirty rounds in a row never sound like a loop — a tight enough spread that it still
@@ -169,9 +173,17 @@ specimen off is the same recording pitched down and driven harder, with a synthe
 low end underneath for weight the sample cannot carry. Everything else — impacts,
 deaths, growls, the UI — is still built from oscillators and one shared noise buffer.
 
-Both sampled sounds decode through `fetch`, which browsers block on `file://` pages.
-There they simply fail, and the procedural gunshot and drone the game shipped with
-take over; nothing goes silent. The music is *Deep Cave Echoes* by steezyb, looped and mixed
+The cave ambience is a five-minute loop cut from a much longer recording, crossfaded
+across the seam so the wrap is inaudible, and re-encoded down to 64 kbps — 110 MB of
+source became 2.3 MB of shipped asset. It has no fallback on purpose: if it cannot
+load the cave is simply quiet, which beats a synthesised approximation fighting the
+real thing on every other machine.
+
+The gunshot decodes through `fetch`, which browsers block on `file://` pages. There it
+fails and the procedural gunshot the game shipped with takes over, so nothing goes
+silent. The music and ambience stream from `<audio>` elements routed into the graph,
+which also degrades on `file://` — they fall back to driving the element's own volume,
+losing only the filtering. The music is *Deep Cave Echoes* by steezyb, looped and mixed
 deliberately low so it sits behind the rifle and the specimens; it is routed through
 the same WebAudio graph as everything else, so it opens up from muffled to full-band
 as the run gets deeper. If the file cannot be played the game falls back to the
@@ -240,7 +252,7 @@ css/style.css           HUD, floating labels, menus
 js/rng.js               seeded RNG + value noise — all procedural generation funnels here
 js/words.js             word bank and difficulty-scaled word generation
 js/settings.js          settings store + the self-rendering options menu
-audio/                  the music loop and the rifle sample
+audio/                  the music loop, the cave ambience loop, and the rifle sample
 js/audio.js             every sound effect, synthesised from oscillators and noise
 js/difficulty.js        the curve, encounter planning, and a headless pacing simulator
 js/scene.js             renderer, camera rig, lighting, quality plumbing

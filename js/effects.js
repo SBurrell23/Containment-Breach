@@ -9,6 +9,7 @@
 
   var MAX_PARTICLES = 1400;
   var MAX_TRACERS = 16;
+  var _shellV = new THREE.Vector3();
 
   function Effects(stage) {
     this.stage = stage;
@@ -19,6 +20,7 @@
     this._buildParticles();
     this._buildTracers();
     this._buildFlash();
+    this._buildShells();
     this._buildRings();
   }
 
@@ -211,6 +213,12 @@
     anchor.position.set(0, -0.008, -0.86);
     group.add(anchor);
 
+    // Ejection port, on the outboard flank of the receiver so spent brass is
+    // thrown away from the centre of the screen rather than across it.
+    var port = new THREE.Object3D();
+    port.position.set(0.06 * side, 0.03, -0.02);
+    group.add(port);
+
     var flashMat = new THREE.MeshBasicMaterial({
       color: 0xffd48a, transparent: true, opacity: 0,
       blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false
@@ -228,11 +236,101 @@
     this.stage.camera.add(group);
 
     return {
-      side: side, group: group, anchor: anchor,
+      side: side, group: group, anchor: anchor, port: port,
       flash: flash, flashMat: flashMat, flashLife: 0,
       cell: cellMat, kick: 0, dis: dis,
       aspectX: WEAPON_HOME.x * side, aspectY: WEAPON_HOME.y
     };
+  };
+
+  /* ---- spent brass -------------------------------------------------------
+   * A casing tumbles out of the ejection port on every shot. It is the cheapest
+   * possible confirmation that the rifle did something mechanical, and in co-op
+   * it is a second way to tell at a glance which side just fired.
+   *
+   * Shells live in CAMERA space alongside the viewmodel, not in the world: a
+   * world-space casing would be left behind as the rail moves and would have to
+   * be lit by the cave, for a two-centimetre object that exists for under a
+   * second. Camera space also means they cannot fall into the play area and
+   * clutter the words. */
+
+  var MAX_SHELLS = 18;
+
+  Effects.prototype._buildShells = function () {
+    var geo = new THREE.CylinderGeometry(0.0085, 0.0095, 0.038, 6, 1, false);
+    // Lay it on its side so it tumbles like a casing rather than a pillar.
+    geo.rotateZ(Math.PI / 2);
+    this.shellGeo = geo;
+    this.shellMat = new THREE.MeshStandardMaterial({
+      color: 0xc9a227, roughness: 0.34, metalness: 0.95, emissive: 0x2a1c05
+    });
+
+    this.shells = [];
+    for (var i = 0; i < MAX_SHELLS; i++) {
+      var m = new THREE.Mesh(geo, this.shellMat);
+      m.visible = false;
+      m.userData.noShadow = true;
+      this.stage.camera.add(m);
+      this.shells.push({
+        mesh: m, life: 0, max: 1,
+        vel: new THREE.Vector3(), spin: new THREE.Vector3()
+      });
+    }
+    this.shellCursor = 0;
+  };
+
+  /* Throw one casing out of the given player's rifle. */
+  Effects.prototype.ejectShell = function (slot) {
+    var r = this.rifleFor(slot === undefined ? this.mySlot : slot);
+    if (!r.group.visible) return;
+
+    var sh = this.shells[this.shellCursor];
+    this.shellCursor = (this.shellCursor + 1) % this.shells.length;
+
+    // Port position expressed in camera space, which is where shells live.
+    r.port.getWorldPosition(_shellV);
+    this.stage.camera.worldToLocal(_shellV);
+    sh.mesh.position.copy(_shellV);
+    sh.mesh.rotation.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
+
+    // Outward and up, drifting back past the player. `side` is what makes the
+    // left-hand rifle throw left and the right-hand one throw right.
+    var out = r.side;
+    sh.vel.set(
+      out * (0.55 + Math.random() * 0.35),
+      0.75 + Math.random() * 0.35,
+      0.45 + Math.random() * 0.3
+    );
+    sh.spin.set(
+      (Math.random() - 0.5) * 26,
+      (Math.random() - 0.5) * 26,
+      (Math.random() - 0.5) * 26
+    );
+    sh.max = 0.85 + Math.random() * 0.25;
+    sh.life = sh.max;
+    sh.mesh.visible = true;
+    sh.mesh.scale.setScalar(1);
+  };
+
+  Effects.prototype._updateShells = function (dt) {
+    for (var i = 0; i < this.shells.length; i++) {
+      var sh = this.shells[i];
+      if (sh.life <= 0) continue;
+      sh.life -= dt;
+      if (sh.life <= 0) { sh.mesh.visible = false; continue; }
+
+      sh.vel.y -= 2.6 * dt;                 // gravity, in viewmodel scale
+      var drag = Math.exp(-1.1 * dt);
+      sh.vel.multiplyScalar(drag);
+      sh.mesh.position.addScaledVector(sh.vel, dt);
+      sh.mesh.rotation.x += sh.spin.x * dt;
+      sh.mesh.rotation.y += sh.spin.y * dt;
+      sh.mesh.rotation.z += sh.spin.z * dt;
+
+      // Shrink away over the last third rather than vanishing mid-air.
+      var k = sh.life / sh.max;
+      if (k < 0.34) sh.mesh.scale.setScalar(Math.max(0.01, k / 0.34));
+    }
   };
 
   Effects.prototype._buildFlash = function () {
@@ -379,6 +477,8 @@
       if (rg.life <= 0) rg.mesh.visible = false;
     }
 
+    this._updateShells(dt);
+
     // flash + weapons
     this._layoutWeapon();
     for (var wi = 0; wi < this.rifles.length; wi++) {
@@ -403,6 +503,12 @@
   };
 
   Effects.prototype.setWeaponVisible = function (v) {
+    if (!v) {
+      for (var sI = 0; sI < this.shells.length; sI++) {
+        this.shells[sI].life = 0;
+        this.shells[sI].mesh.visible = false;
+      }
+    }
     for (var i = 0; i < this.rifles.length; i++) {
       var r = this.rifles[i];
       var shouldShow = v && (this.coop || i === this.mySlot);
@@ -418,6 +524,9 @@
     this.ringGeo.dispose();
     for (var r = 0; r < this.rings.length; r++) this.rings[r].mat.dispose();
     this.flashGeo.dispose();
+    this.shellGeo.dispose();
+    this.shellMat.dispose();
+    for (var sd = 0; sd < this.shells.length; sd++) this.stage.camera.remove(this.shells[sd].mesh);
     for (var w = 0; w < this.rifles.length; w++) {
       var rf = this.rifles[w];
       for (var d = 0; d < rf.dis.length; d++) rf.dis[d].dispose();
