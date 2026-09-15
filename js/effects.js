@@ -538,8 +538,10 @@
    * one flag is the entire revert, with no loose ends to chase. */
   var SHOW_ARMS = true;
 
-  /* Which way the arm swings away from the grip. See buildArm. */
-  var ARM_LEAN = -1;
+  /* Which way the arm swings away from the grip, relative to the side of the
+   * screen the weapon is on: +1 sends it outward toward that edge, -1 sends it
+   * inward across the body. See buildArm. */
+  var ARM_LEAN = 1;
 
   /* A limb between two points, as a tapered cylinder. Placing these by euler
    * angles is guesswork; giving the two joint positions and letting the
@@ -567,7 +569,7 @@
    * It runs from the grip down and outboard to a shoulder behind the camera,
    * which is what keeps it out of the middle of the screen: the weapon already
    * sits off-centre, and the arm only ever travels further that way. */
-  function buildArm(dis, side) {
+  function buildArm(dis, lean) {
     var g = new THREE.Group();
 
     var suit = CT.detailMat(new THREE.MeshStandardMaterial({
@@ -582,12 +584,7 @@
     dis.push(suit, glove, seal);
 
     /* Joints, in the rifle's local space. The grip is at (0, -0.135, 0.17).
-     *
-     * ARM_LEAN is which way the elbow and shoulder swing away from the grip:
-     * -1 takes them across the body toward the middle of the screen, +1 takes
-     * them out toward the shoulder on the weapon's own side. One character to
-     * change your mind. */
-    var lean = side * ARM_LEAN;
+     * `lean` is which way the elbow and shoulder swing away from it. */
     var wrist = [0.012 * lean, -0.20, 0.27];
     var elbow = [0.17 * lean, -0.44, 0.60];
     var shoulder = [0.35 * lean, -0.66, 0.86];
@@ -728,7 +725,27 @@
     group.add(flash);
     dis.push(flashMat);
 
-    if (SHOW_ARMS) group.add(buildArm(dis, side));
+    /* Both leans are built, and setCoop shows whichever matches the side of the
+     * screen the weapon has ended up on.
+     *
+     * It has to be done this way because the arm's geometry bakes its lean in,
+     * while a rifle's SIDE is not settled until setCoop runs: solo puts the
+     * local player's weapon on the right whichever slot they are, and co-op
+     * puts player one left and player two right. Baking the lean from the
+     * build-time side meant that in co-op both arms leaned the same way
+     * relative to their own weapon and so both reached into the middle of the
+     * screen. Mirroring one at runtime with a negative scale would invert every
+     * normal on it, and rebuilding the geometry on every layout change is work
+     * for something that is a dozen cylinders — so build the two and hide one. */
+    var arms = null;
+    if (SHOW_ARMS) {
+      // Named for the direction they lean in the weapon's own space, not for
+      // what that means on screen — which side of the screen is "outward"
+      // depends on r.side, and that is setCoop's business, not this function's.
+      arms = { leanPos: buildArm(dis, 1), leanNeg: buildArm(dis, -1) };
+      group.add(arms.leanPos);
+      group.add(arms.leanNeg);
+    }
 
     group.position.set(WEAPON_HOME.x * side, WEAPON_HOME.y, WEAPON_HOME.z);
     group.rotation.set(0.03, -0.055 * side, 0.02 * side);
@@ -738,6 +755,7 @@
       side: side, group: group, anchor: anchor, port: port,
       flash: flash, flashMat: flashMat, flashLife: 0,
       cell: cellMat, kick: 0, dis: dis,
+      arms: arms,
       fills: fills, gaugeLen: GAUGE_LEN, coldColor: new THREE.Color(cellColor),
       heat: 0, venting: 0,
       aspectX: WEAPON_HOME.x * side, aspectY: WEAPON_HOME.y
@@ -873,6 +891,13 @@
         r.side = 1;
       }
       r.group.rotation.set(0.03, -0.055 * r.side, 0.02 * r.side);
+      if (r.arms) {
+        // Lean the same way as the side of the screen the weapon sits on, so
+        // each arm reaches off its own edge instead of into the middle.
+        var pos = (r.side * ARM_LEAN) > 0;
+        r.arms.leanPos.visible = pos;
+        r.arms.leanNeg.visible = !pos;
+      }
     }
     this._lastAspect = -1;      // force a re-layout for the new sides
     this._layoutWeapon();

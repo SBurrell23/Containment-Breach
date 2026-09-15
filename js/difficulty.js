@@ -107,13 +107,14 @@
      * the rifle, and heat bleeds off on its own. Fill the gauge and the weapon
      * vents and will not fire until it has cooled.
      *
-     * The numbers are set so that a clean typist never sees it: eight stray
-     * characters inside a couple of seconds is the threshold, and at
-     * heatCool the gauge empties from full in about four seconds. It is a
-     * brake on mashing the keyboard when a word will not come, not a tax on
-     * ordinary mistakes. */
-    heatPerMiss: 0.125,
-    heatCool: 0.26,
+     * Five stray characters in quick succession vents the weapon, and the
+     * gauge empties from full in five seconds. A typist making ordinary
+     * mistakes still never sees it — at 90% accuracy and 60 WPM that is half a
+     * stray character a second, which puts in less heat than bleeds out — but
+     * a burst of mashing when a word will not come gets there in about a
+     * second, which is the behaviour this exists to price. */
+    heatPerMiss: 0.22,
+    heatCool: 0.20,
     heatLockout: 1.75,
     // Heat left in the barrel once the lockout ends, so a player who goes
     // straight back to mashing gets there again quickly.
