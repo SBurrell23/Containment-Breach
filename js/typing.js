@@ -68,8 +68,16 @@
   };
 
   /* Pick the best monster whose current word starts with `ch`.
-   * Preference: unclaimed over claimed, then whatever is closest to the player
-   * (the most urgent threat), then whatever has the shortest word left. */
+   *
+   * The deciding factor is how close the candidate is to the crosshair, not how
+   * close it is to the player. Words are only ever committed to one at a time,
+   * so between words the player is free to swing to anything — and when two
+   * specimens both offer a word starting with the letter just pressed, the one
+   * already near where they are looking is the one they meant. That is what
+   * makes firing back and forth between two specimens feel like aiming rather
+   * than like a lottery.
+   *
+   * A teammate's in-progress word is avoided unless nothing else matches. */
   Typing.prototype._acquire = function (ch, monsters, slot) {
     var best = null, bestScore = Infinity;
     for (var i = 0; i < monsters.length; i++) {
@@ -79,9 +87,11 @@
       var w = m.currentWord();
       if (!w) continue;
       if (w.charAt(0).toLowerCase() !== ch.toLowerCase()) continue;
-      // Respect a teammate's lock unless nothing else is available.
       var claimedPenalty = (m.claimedBy >= 0 && m.claimedBy !== slot) ? 1000 : 0;
-      var score = claimedPenalty + m.dist + w.length * 0.15;
+      var aim = m.aimDist === undefined ? 9 : m.aimDist;
+      // Distance is a whisper of a tiebreak between two equally-aimed-at
+      // specimens, so the closer threat wins that coin flip.
+      var score = claimedPenalty + aim + m.dist * 0.004;
       if (score < bestScore) { bestScore = score; best = m; }
     }
     return best;
@@ -154,11 +164,14 @@
       var m = this.target;
       this.typed = '';
       if (this.hooks.onWord) this.hooks.onWord(m, word);
-      // The game decides whether the monster survived; re-validate either way.
-      if (!m.alive || m.removed) {
-        if (m.claimedBy === this.slot) m.claimedBy = -1;
-        this.target = null;
-      }
+
+      // Always let go. A finished word is a fired round, not a commitment to
+      // keep emptying the magazine into the same specimen — the next keystroke
+      // re-targets from scratch, so the player can alternate between two
+      // specimens word by word. Only an *unfinished* word holds you.
+      if (m.claimedBy === this.slot) m.claimedBy = -1;
+      this.target = null;
+      if (this.hooks.onRelease) this.hooks.onRelease(m);
       return 'word';
     }
     return 'hit';

@@ -15,6 +15,8 @@
   var D = function () { return CT.Difficulty; };
 
   var PLAYER_COLORS = [0x7dff4a, 0x36e0ff];
+  var _rigPos = new THREE.Vector3();
+  var _panV = new THREE.Vector3();
   var BLEEDOUT_TIME = 26;      // seconds a downed co-op player has left
   var REVIVE_HP = 45;
 
@@ -36,8 +38,9 @@
     this.encounterIndex = 0;
     this.runSeed = 0;
     this.score = 0;
+    this.stationS = 0;      // arc length along the cave route (authoritative)
+    this.stationX = 0;      // world position of the rail stop, derived
     this.stationZ = 0;
-    this.stationX = 0;
     this.time = 0;
     this._stateT = 0;
     this._syncT = 0;
@@ -95,10 +98,9 @@
     if (this.cave) this.cave.dispose();
     this.cave = new CT.Cave(this.stage, this.runSeed);
 
-    this.stationZ = 0;
-    this.stationX = this.cave.centerX(0);
-    this.stage.rigRoot.position.set(this.stationX, 0, this.stationZ);
-    this.cave.streamTo(0);
+    this.stationS = 0;
+    this.placeRig(0);
+    this.cave.streamTo(40);
 
     this.hud.buildPlayers(this.players, this.mySlot);
     this.hud.show(true);
@@ -213,6 +215,25 @@
     }
   };
 
+  /* Put the camera rig on the route at the current arc position, facing down
+   * the corridor. `sway` is an extra yaw for the rail's wobble during travel. */
+  Game.prototype.placeRig = function (sway) {
+    var p = this.cave.pointAt(this.stationS, _rigPos);
+    this.stationX = p.x;
+    this.stationZ = p.z;
+    this.stage.rigRoot.position.set(p.x, 0, p.z);
+    this.stage.rigRoot.rotation.y = this.cave.headingAt(this.stationS) + (sway || 0);
+  };
+
+  /* Stereo pan for a world position, measured across the camera rig's own right
+   * axis rather than world X — otherwise every sound flips sides when the cave
+   * turns a corner. */
+  Game.prototype.panFor = function (worldPos) {
+    _panV.copy(worldPos);
+    this.stage.rigRoot.worldToLocal(_panV);
+    return CT.clamp(_panV.x / 12, -1, 1);
+  };
+
   Game.prototype.bossMonster = function () {
     for (var i = 0; i < this.monsters.length; i++) if (this.monsters[i].boss) return this.monsters[i];
     return null;
@@ -222,6 +243,9 @@
     for (var i = 0; i < this.monsters.length; i++) this.monsters[i].dispose();
     this.monsters.length = 0;
     this.labels.clear();
+    // Drop the held aim with the specimens it was pointing at, or the camera
+    // would carry the last chamber's angle into the next one.
+    this._aimAt = null;
   };
 
   Game.prototype.aliveCount = function () {
@@ -268,7 +292,7 @@
   /* Visuals + audio for a shot, from either player. */
   Game.prototype.shotFx = function (m, slot, killed) {
     var hitPos = m.hitWorld(new THREE.Vector3());
-    var pan = CT.clamp((m.group.position.x - this.stationX) / 12, -1, 1);
+    var pan = this.panFor(m.group.position);
     var color = slot === 1 ? 0x36e0ff : 0xffe9b0;
 
     var from = new THREE.Vector3();
@@ -278,7 +302,8 @@
       this.stage.fireFeedback(killed ? 1.4 : 1);
     } else {
       // Partner's muzzle: beside the station, offset to their side.
-      from.set(this.stationX + (slot === 1 ? 1.5 : -1.5), 1.25, this.stationZ - 0.6);
+      from.set(slot === 1 ? 1.5 : -1.5, 1.25, -0.6);
+      this.stage.rigRoot.localToWorld(from);
     }
     this.effects.tracer(from, hitPos, color);
     this.effects.impact(hitPos, m.gooColor);
@@ -316,7 +341,7 @@
     var dmg = m.spec.damage;
     target.hp = Math.max(0, target.hp - dmg);
 
-    var pan = CT.clamp((m.group.position.x - this.stationX) / 12, -1, 1);
+    var pan = this.panFor(m.group.position);
     CT.Audio.monsterAttack(pan);
     this.applyHurt(target.slot);
 
@@ -503,12 +528,21 @@
     this.updateLabels();
     this.updateNetSync(dt);
 
-    if (this.cave) this.cave.update(dt, this.time, this.stationZ);
+    if (this.cave) this.cave.update(dt, this.time, this.stationS);
     this.effects.update(dt, this.time);
 
-    // Nudge the camera toward whatever we are shooting at.
+    // Nudge the camera toward whatever we are shooting at, and keep it there
+    // between words. Recentring the moment a word lands would drag the crosshair
+    // away from the specimen the player is most likely to shoot next — and
+    // since targeting now picks whatever is nearest the crosshair, that would
+    // quietly fight the player's own aim. The aim only lets go when the
+    // specimen dies.
     var tgt = this.typing.target;
-    this.stage.lookToward(tgt && tgt.alive ? tgt.headWorld(new THREE.Vector3()) : null);
+    if (tgt && tgt.alive) this._aimAt = tgt;
+    if (this._aimAt && (!this._aimAt.alive || this._aimAt.removed || !this._aimAt.active)) {
+      this._aimAt = null;
+    }
+    this.stage.lookToward(this._aimAt ? this._aimAt.headWorld(new THREE.Vector3()) : null);
   };
 
   Game.prototype.updateMonsters = function (dt) {
@@ -522,7 +556,7 @@
       // Ambient menace from anything close and still breathing.
       if (m.alive && m.active && m.dist < m.meleeDist + 3 && this.time - m.lastGrowl > 3.5 + Math.random() * 3) {
         m.lastGrowl = this.time;
-        CT.Audio.growl(CT.clamp((m.group.position.x - this.stationX) / 12, -1, 1), m.boss || m.tier === 'mid');
+        CT.Audio.growl(this.panFor(m.group.position), m.boss || m.tier === 'mid');
       }
       if (m.removed) dead.push(i);
     }
@@ -578,8 +612,8 @@
   Game.prototype.beginTravel = function () {
     this.state = 'travel';
     this._stateT = 0;
-    this._travelFrom = this.stationZ;
-    this._travelTo = this.stationZ - D().TUNING.stationSpacing;
+    this._travelFrom = this.stationS;
+    this._travelTo = this.stationS + D().TUNING.stationSpacing;
     this._travelTime = this._plan ? this._plan.travelTime : D().TUNING.travelTime;
     this.clearMonsters();
     CT.Audio.advance();
@@ -592,15 +626,13 @@
     var k = CT.clamp(this._stateT / this._travelTime, 0, 1);
     // ease in/out so the rail feels mechanical rather than linear
     var e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
-    this.stationZ = CT.lerp(this._travelFrom, this._travelTo, e);
-    this.stationX = this.cave.centerX(this.stationZ);
-    this.stage.rigRoot.position.set(this.stationX, 0, this.stationZ);
-    // a little sway on the rail
-    this.stage.rigRoot.rotation.y = Math.sin(this._stateT * 1.7) * 0.02 * (1 - Math.abs(k - 0.5) * 2);
-    this.cave.streamTo(this.stationZ - 40);
+    this.stationS = CT.lerp(this._travelFrom, this._travelTo, e);
+    // A little sway on the rail, on top of the route's own heading.
+    this.placeRig(Math.sin(this._stateT * 1.7) * 0.02 * (1 - Math.abs(k - 0.5) * 2));
+    this.cave.streamTo(this.stationS + 40);
 
     if (k >= 1) {
-      this.stage.rigRoot.rotation.y = 0;
+      this.placeRig(0);
       if (this.net.role === 'client') {
         this.state = 'waiting';
         this._stateT = 0;
@@ -787,7 +819,7 @@
       p.hp = msg.hp;
       self.applyHurt(msg.slot);
       var m = self.findMonster(msg.uid);
-      if (m) CT.Audio.monsterAttack(CT.clamp((m.group.position.x - self.stationX) / 12, -1, 1));
+      if (m) CT.Audio.monsterAttack(self.panFor(m.group.position));
     });
 
     net.on('sync', function (msg) {

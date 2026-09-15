@@ -57,16 +57,27 @@ looks less deliberate.
 | `Esc` | Drop the lock. Press again to pause. |
 | `Enter` | Start a solo run from the title screen. |
 
-- **The first letter picks your target.** Press a key and you lock onto the nearest
-  specimen whose word starts with it. You stay locked until the word is finished.
-  Encounters are generated so that no two words start with the same letter wherever
-  possible, which makes targeting decisive rather than a lottery.
+- **The first letter picks your target**, and when two specimens both offer that
+  letter you get whichever is nearest your crosshair — the one you were already
+  looking at. Encounters also avoid repeating first letters wherever they can, so
+  most of the time the choice is unambiguous anyway.
+- **A word in progress holds you; a finished one does not.** You cannot abandon a
+  half-typed word by typing at something else, but the instant it lands you are free
+  to go anywhere. So you can walk two specimens down a word at a time, alternating,
+  instead of being married to the first thing you shot. The camera keeps its aim
+  where you left it between words rather than snapping back to centre, which is what
+  makes the crosshair rule feel like aiming instead of a coin toss.
 - **A specimen's health bar is the number of words left in it.** Grunts die in one
   to three. Bosses take dozens of long compound words.
 - **Everything is walking toward you.** Anything that reaches you starts tearing at
   your health and does not stop. Kill the closest threat first.
 - Clearing a chamber patches you up a little — never all the way. Damage accumulates
   across a run.
+- **The cave actually goes somewhere.** Every one to three chambers the route turns a
+  hard corner, and the tunnel narrows to a passage you cannot see past before opening
+  into the next chamber. Turns only ever happen between chambers, never inside the
+  stretch a chamber's specimens walk in from — a corner there would hide the things
+  you have to shoot.
 
 ### Two players
 
@@ -134,13 +145,14 @@ Development below), not by the offline model:
 | --- | --- | --- |
 | 40 WPM | chamber 10 | ~4 min |
 | 70 WPM | chamber 24 | ~11 min |
-| **100 WPM** | **chamber 30–35** | **12–16 min, averaging ~14.5** |
+| **100 WPM** | **chamber 34–36** | **15–16.5 min** |
 | 130 WPM | chamber 40 | ~16 min |
 
-The 100 WPM row is five runs; the others are single runs, so treat them as indicative.
-Run-to-run spread is real and mostly comes from which specimens a chamber rolls — a
-chamber of slow `TENDRIL STALK`s is a very different problem from one of fast
-`LAB RAT`s carrying the same number of words.
+The scripted player always shoots the nearest live specimen and never hesitates or
+re-reads, so these are a competent-play ceiling rather than a typical run; a human at
+the same raw WPM should land a little short of them. Run-to-run spread mostly comes
+from which specimens a chamber rolls — a chamber of slow `TENDRIL STALK`s is a very
+different problem from one of fast `LAB RAT`s carrying the same number of words.
 
 ### Type
 
@@ -175,7 +187,7 @@ js/settings.js          settings store + the self-rendering options menu
 js/audio.js             every sound in the game, synthesised from oscillators and noise
 js/difficulty.js        the curve, encounter planning, and a headless pacing simulator
 js/scene.js             renderer, camera rig, lighting, quality plumbing
-js/cave.js              procedural cave tunnel + ruined-lab set dressing, streamed in chunks
+js/cave.js              the procedural cave route + ruined-lab dressing, streamed in chunks
 js/effects.js           pooled tracers, impacts, gore, muzzle flash, viewmodel
 js/entities.js          monster registry, fallback models, and the live monster entity
 js/typing.js            targeting, matching, and typing stats

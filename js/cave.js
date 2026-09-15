@@ -1,13 +1,20 @@
-/* Cave Typer — procedural cave tunnel and ruined-lab set dressing.
+/* Cave Typer — procedural cave route and ruined-lab set dressing.
  *
- * The tunnel is generated in chunks along -Z and recycled behind the player, so
- * a run can go on forever without the scene growing without bound. Every chunk
- * is derived from (runSeed, chunkIndex), so the same seed gives the same cave —
- * which is what keeps two networked players in the same-looking cave. */
+ * The cave is a ROUTE, not an axis: a centre line that turns corners, addressed
+ * by arc length `s`. Wall rings, props, monsters and the camera rig are all
+ * placed through that route's local frame, which is what makes it a cave system
+ * rather than one long mineshaft.
+ *
+ * It is generated in chunks and recycled behind the player, so a run can go on
+ * forever without the scene growing without bound. Every chunk and every turn is
+ * derived from the run seed, so the same seed gives the same cave — which is
+ * what keeps two networked players walking the same corridors. */
 (function (global) {
   'use strict';
   var CT = (global.CaveTyper = global.CaveTyper || {});
   var S = function () { return CT.Settings; };
+
+  var _tmpV = new THREE.Vector3();
 
   var CHUNK_LEN = 48;       // world units per chunk
   var KEEP_AHEAD = 4;       // chunks generated in front of the player
@@ -107,27 +114,173 @@
     this.stage.scene.background = new THREE.Color(CT.FOG_COLOR).lerp(this.palette.rockDark, 0.5);
     this.stage.scene.fog.color.copy(this.stage.scene.background);
 
+    this._initPath();
+
     this.dust = null;
     this._buildDust();
   }
 
-  /* Tunnel centre-line X offset at a given z. Gentle, long-wavelength drift. */
-  Cave.prototype.centerX = function (z) {
-    var n = this.noise;
-    return (n.n3(z * 0.008, 0.5, 11.3) - 0.5) * 9.0 + (n.n3(z * 0.031, 3.7, 2.1) - 0.5) * 2.4;
+  /* ---- the path ----------------------------------------------------------
+   * The tunnel is not an axis, it is a route. Everything downstream — wall
+   * rings, props, monsters, the camera rig — is placed by arc length `s` along
+   * that route rather than by z, which is what lets the cave actually turn
+   * corners instead of being one long mineshaft.
+   *
+   * Turns are deliberately quantised to the rail's stops. Every station gets a
+   * guaranteed straight run of CLEAR units ahead of it, because that is where
+   * its specimens spawn and walk in from — a corner inside that window would
+   * hide the things the player has to shoot. All the turning therefore happens
+   * in the short window between the end of one chamber's sightline and arrival
+   * at the next, so the player rides around the bend and stops facing down a
+   * fresh corridor. */
+
+  var SAMPLE = 0.5;        // arc length between cached path samples
+
+  Cave.prototype._initPath = function () {
+    var spacing = (CT.Difficulty && CT.Difficulty.TUNING.stationSpacing) || 44;
+    this.spacing = spacing;
+    // Straight run guaranteed ahead of each station. Must comfortably exceed the
+    // furthest monster spawn distance, or specimens spawn around a corner.
+    var maxSpawn = (CT.Difficulty && CT.Difficulty.TUNING.spawnDistMax) || 27;
+    this.clear = Math.min(spacing - 8, maxSpawn + 5);
+    this.turnArc = spacing - this.clear;     // window the heading swings through
+
+    this._turnRng = this.rng.fork('turns');
+    this._turns = [];        // yaw delta applied while travelling k -> k+1
+    this._headSum = [0];     // cumulative heading at the start of station k
+    this._nextTurnAt = this._turnRng.int(1, 2);
+    this._lastDir = this._turnRng.bool() ? 1 : -1;
+
+    // Integrated centre-line, extended lazily.
+    this._px = [0];
+    this._pz = [0];
+    this._sMax = 0;
   };
 
-  /* Ceiling height at a given z — used so chambers open up and corridors squeeze. */
-  Cave.prototype.ceilingAt = function (z) {
-    var n = this.noise;
-    return 6.0 + n.fbm3(z * 0.013, 7.7, 0.0, 3) * 5.5;
+  /* Yaw deltas are generated in order and cached, so the route is identical for
+   * both players in co-op given the same run seed. */
+  Cave.prototype._ensureTurns = function (k) {
+    while (this._turns.length <= k) {
+      var i = this._turns.length;
+      var delta = 0;
+      if (i === this._nextTurnAt) {
+        var rng = this._turnRng;
+        // Mostly alternate, so the cave switchbacks rather than spiralling away.
+        var dir = rng.bool(0.78) ? -this._lastDir : this._lastDir;
+        delta = dir * rng.range(0.45, 1.05);     // ~26 to ~60 degrees
+        this._lastDir = dir;
+        this._nextTurnAt = i + rng.int(1, 3);    // next turn in 1-3 chambers
+      }
+      this._turns.push(delta);
+      this._headSum.push(this._headSum[i] + delta);
+    }
   };
 
-  Cave.prototype.radiusAt = function (z, angle) {
+  /* Heading (yaw, radians) of the route at arc length s. Forward is
+   * (-sin h, 0, -cos h), so h = 0 points down -Z as the rest of the game
+   * assumes, and this value can be assigned straight to rigRoot.rotation.y. */
+  Cave.prototype.headingAt = function (s) {
+    if (s < 0) s = 0;
+    var k = Math.floor(s / this.spacing);
+    this._ensureTurns(k);
+    var t = s - k * this.spacing;
+    var turn = CT.clamp((t - this.clear) / this.turnArc, 0, 1);
+    return this._headSum[k] + this._turns[k] * (turn * turn * (3 - 2 * turn));
+  };
+
+  Cave.prototype._extendPath = function (s) {
+    while (this._sMax < s) {
+      var i = this._px.length - 1;
+      var h = this.headingAt(this._sMax + SAMPLE * 0.5);   // midpoint integration
+      this._px.push(this._px[i] - Math.sin(h) * SAMPLE);
+      this._pz.push(this._pz[i] - Math.cos(h) * SAMPLE);
+      this._sMax += SAMPLE;
+    }
+  };
+
+  /* World-space centre of the tunnel at arc length s. */
+  Cave.prototype.pointAt = function (s, out) {
+    out = out || new THREE.Vector3();
+    if (s < 0) s = 0;
+    this._extendPath(s + SAMPLE * 2);
+    var f = s / SAMPLE;
+    var i = Math.floor(f);
+    var t = f - i;
+    var j = Math.min(i + 1, this._px.length - 1);
+    out.set(
+      this._px[i] + (this._px[j] - this._px[i]) * t,
+      0,
+      this._pz[i] + (this._pz[j] - this._pz[i]) * t
+    );
+    return out;
+  };
+
+  /* Position plus the local right vector, which is what lateral offsets (lanes,
+   * wall props, ring vertices) are measured along. */
+  Cave.prototype.frameAt = function (s, out) {
+    out = out || { x: 0, z: 0, h: 0, rx: 1, rz: 0 };
+    var p = this.pointAt(s, _tmpV);
+    var h = this.headingAt(s);
+    out.x = p.x; out.z = p.z; out.h = h;
+    out.rx = Math.cos(h);
+    out.rz = -Math.sin(h);
+    return out;
+  };
+
+  /* Arc length of the k-th rail stop. */
+  Cave.prototype.stationArc = function (k) { return k * this.spacing; };
+
+  /* True where the route is turning — used to keep props off the bend. */
+  Cave.prototype.isTurning = function (s) {
+    var k = Math.floor(s / this.spacing);
+    this._ensureTurns(k);
+    if (!this._turns[k]) return false;
+    var t = s - k * this.spacing;
+    return t > this.clear - 2;
+  };
+
+  /* How tightly the route is bending at s, 0..1.
+   *
+   * This exists because a sharp turn in a wide tube turns itself inside out: if
+   * the bend radius is smaller than the tunnel radius, the inner wall folds
+   * through the centre line and you get inverted geometry on every corner. The
+   * turns here are deliberately sharp, so the tunnel narrows to meet them —
+   * which also happens to be exactly right for a cave, where the wide chambers
+   * are joined by passages you have to squeeze through and cannot see past. */
+  Cave.prototype.bendAmount = function (s) {
+    if (s < 0) s = 0;
+    var k = Math.floor(s / this.spacing);
+    this._ensureTurns(k);
+    var t = s - k * this.spacing;
+    var RAMP = 9;
+    var sq = 0;
+
+    var d0 = Math.abs(this._turns[k] || 0);
+    if (d0) {
+      sq = Math.max(sq, CT.clamp((t - (this.clear - RAMP)) / RAMP, 0, 1) * Math.min(1, d0 / 1.0));
+    }
+    // The previous leg's bend finishes exactly at this station, so its squeeze
+    // spills over into the first few units of this leg.
+    var dPrev = k > 0 ? Math.abs(this._turns[k - 1] || 0) : 0;
+    if (dPrev) {
+      sq = Math.max(sq, CT.clamp((RAMP - t) / RAMP, 0, 1) * Math.min(1, dPrev / 1.0));
+    }
+    return sq;
+  };
+
+  /* Ceiling height at arc s — chambers open up, corridors squeeze. */
+  Cave.prototype.ceilingAt = function (s) {
     var n = this.noise;
-    var base = 7.2 + n.fbm3(z * 0.011, 2.2, 0.0, 3) * 5.0;
-    var wob = n.fbm3(Math.cos(angle) * 1.6, Math.sin(angle) * 1.6, z * 0.055, 4) - 0.5;
-    return base * (1 + wob * 0.42);
+    var h = 6.0 + n.fbm3(s * 0.013, 7.7, 0.0, 3) * 5.5;
+    return h * CT.lerp(1, 0.62, this.bendAmount(s));
+  };
+
+  Cave.prototype.radiusAt = function (s, angle) {
+    var n = this.noise;
+    var base = 7.2 + n.fbm3(s * 0.011, 2.2, 0.0, 3) * 5.0;
+    var wob = n.fbm3(Math.cos(angle) * 1.6, Math.sin(angle) * 1.6, s * 0.055, 4) - 0.5;
+    var r = base * (1 + wob * 0.42);
+    return r * CT.lerp(1, 0.46, this.bendAmount(s));
   };
 
   Cave.prototype.quality = function () {
@@ -141,28 +294,42 @@
 
   Cave.prototype._buildWalls = function (ci, disposables) {
     var q = this.quality();
-    var z0 = -ci * CHUNK_LEN;
-    var rings = q.rings, radial = q.radial;
+    var s0 = ci * CHUNK_LEN;
+    var radial = q.radial;
     var verts = [], colors = [], indices = [];
     var pal = this.palette;
     var cRock = pal.rock, cDark = pal.rockDark, cMoss = pal.moss;
     var tmp = new THREE.Color();
+    var frame = { x: 0, z: 0, h: 0, rx: 1, rz: 0 };
 
-    // One extra ring of overlap so chunks seam without a visible crack.
+    // Rings are swept along the route and oriented to its local frame, so the
+    // tube bends with the path. Corners need more rings than a straight run or
+    // the bend facets visibly, so ring spacing tightens where the route turns.
+    var arcs = [];
+    var sEnd = s0 + CHUNK_LEN;
+    var baseStep = CHUNK_LEN / q.rings;
+    for (var s = s0; s < sEnd; ) {
+      arcs.push(s);
+      s += this.isTurning(s) ? baseStep * 0.4 : baseStep;
+    }
+    arcs.push(sEnd);        // one ring of overlap, so chunks seam without a crack
+    var rings = arcs.length - 1;
+
     for (var i = 0; i <= rings; i++) {
-      var t = i / rings;
-      var z = z0 - t * CHUNK_LEN;
-      var cx = this.centerX(z);
-      var ceil = this.ceilingAt(z);
+      var sa = arcs[i];
+      this.frameAt(sa, frame);
+      var ceil = this.ceilingAt(sa);
 
       for (var j = 0; j <= radial; j++) {
         var a = (j / radial) * Math.PI * 2;
-        var r = this.radiusAt(z, a);
-        var x = cx + Math.cos(a) * r;
+        var r = this.radiusAt(sa, a);
+        var lat = Math.cos(a) * r;          // offset along the route's right axis
         var y = Math.sin(a) * r;
 
         // Squash the lower half into a floor: anything below 0 gets pulled up to
         // a lumpy near-flat surface so monsters have somewhere to stand.
+        var x = frame.x + frame.rx * lat;
+        var z = frame.z + frame.rz * lat;
         if (y < 0) {
           var bump = (this.noise.fbm3(x * 0.16, 9.1, z * 0.16, 3) - 0.5) * 0.7;
           var flatness = CT.clamp(-y / 3.0, 0, 1);
@@ -517,94 +684,101 @@
 
     group.add(this._buildWalls(ci, dis));
 
-    var z0 = -ci * CHUNK_LEN;
+    var s0 = ci * CHUNK_LEN;
     var propCount = Math.round(rng.int(9, 16) * q.props);
     var lightBudget = 2;
+    var frame = { x: 0, z: 0, h: 0, rx: 1, rz: 0 };
 
     // Monsters walk up the middle of the tunnel, so anything tall enough to hide
     // one has to stay out of the central corridor. Flat floor decals and
     // ceiling-mounted clutter are exempt — they never block a silhouette.
     var CORRIDOR = 5.0;
 
-    // The rail stops the players every `stationSpacing` units. Nothing may be
-    // dressed into those spots — a two-metre pool of luminous specimen fluid
-    // rendered from inside is a magenta wall across half the screen.
-    var SPACING = (CT.Difficulty && CT.Difficulty.TUNING.stationSpacing) || 26;
-    function nearAStation(z) {
-      var d = Math.abs(z) % SPACING;
+    // The rail stops the players every `spacing` units. Nothing may be dressed
+    // into those spots — a two-metre pool of luminous specimen fluid rendered
+    // from inside is a magenta wall across half the screen.
+    var SPACING = this.spacing;
+    function nearAStation(sa) {
+      var d = Math.abs(sa) % SPACING;
       return Math.min(d, SPACING - d) < 5.5;
     }
 
-    function clearOfCorridor(x, cx, side) {
-      var off = x - cx;
-      if (Math.abs(off) >= CORRIDOR) return x;
-      return cx + side * CORRIDOR + (x - cx) * 0.15;
+    // Lateral offsets are measured from the centre line, along the route's local
+    // right axis, so props hug the walls correctly through a bend.
+    function clearOfCorridor(lat, side) {
+      if (Math.abs(lat) >= CORRIDOR) return lat;
+      return side * CORRIDOR + lat * 0.15;
     }
 
     for (var i = 0; i < propCount; i++) {
-      var z = z0 - rng.range(1, CHUNK_LEN - 1);
-      if (nearAStation(z)) continue;
-      var cx = this.centerX(z);
+      var sa = s0 + rng.range(1, CHUNK_LEN - 1);
+      // Corners carry no dressing: the geometry is densest there and a prop
+      // pinned to a swinging wall reads as floating.
+      if (nearAStation(sa) || this.isTurning(sa)) continue;
       var side = rng.sign();
-      var wallR = this.radiusAt(z, side > 0 ? 0 : Math.PI);
+      var wallR = this.radiusAt(sa, side > 0 ? 0 : Math.PI);
       var kind = rng.next();
-      var p = null, yPos = 0, xPos;
+      var p = null, yPos = 0, xPos, baseRot = 0;
 
       if (kind < 0.13) {
         p = this._propContainmentPod(rng, dis);
-        xPos = clearOfCorridor(cx + side * rng.range(wallR * 0.45, wallR * 0.8), cx, side);
+        xPos = clearOfCorridor(side * rng.range(wallR * 0.45, wallR * 0.8), side);
       } else if (kind < 0.20) {
         p = this._propGurney(rng, dis);
-        xPos = clearOfCorridor(cx + side * rng.range(1.5, wallR * 0.7), cx, side);
+        xPos = clearOfCorridor(side * rng.range(1.5, wallR * 0.7), side);
       } else if (kind < 0.30) {
         p = this._propBarrel(rng, dis);
-        xPos = clearOfCorridor(cx + side * rng.range(1.2, wallR * 0.85), cx, side);
+        xPos = clearOfCorridor(side * rng.range(1.2, wallR * 0.85), side);
       } else if (kind < 0.38) {
         p = this._propPipes(rng, dis, rng.range(8, 20));
-        xPos = cx + side * rng.range(wallR * 0.7, wallR * 0.95);
+        xPos = side * rng.range(wallR * 0.7, wallR * 0.95);
         yPos = rng.range(1.2, 3.5);
       } else if (kind < 0.44) {
         p = this._propSign(rng, dis);
-        xPos = cx + side * rng.range(wallR * 0.72, wallR * 0.92);
+        xPos = side * rng.range(wallR * 0.72, wallR * 0.92);
         yPos = rng.range(1.6, 3.0);
-        p.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
+        baseRot = side > 0 ? -Math.PI / 2 : Math.PI / 2;
       } else if (kind < 0.53) {
         p = this._propGooPool(rng, dis);
-        xPos = cx + rng.range(-wallR * 0.7, wallR * 0.7);
+        xPos = rng.range(-wallR * 0.7, wallR * 0.7);
         animated.push(p);
       } else if (kind < 0.68) {
         p = this._propStalagmite(rng, dis, true);
-        xPos = clearOfCorridor(cx + side * rng.range(2.0, wallR * 0.9), cx, side);
+        xPos = clearOfCorridor(side * rng.range(2.0, wallR * 0.9), side);
       } else if (kind < 0.76) {
         p = this._propStalagmite(rng, dis, false);
-        xPos = cx + rng.range(-wallR * 0.8, wallR * 0.8);
-        yPos = this.ceilingAt(z) * rng.range(0.75, 0.95);
+        xPos = rng.range(-wallR * 0.8, wallR * 0.8);
+        yPos = this.ceilingAt(sa) * rng.range(0.75, 0.95);
       } else if (kind < 0.85) {
         var wantLight = lightBudget > 0 && rng.bool(0.7);
         if (wantLight) lightBudget--;
         p = this._propLight(rng, dis, wantLight);
-        xPos = cx + side * rng.range(wallR * 0.65, wallR * 0.88);
+        xPos = side * rng.range(wallR * 0.65, wallR * 0.88);
         yPos = rng.range(2.2, 4.2);
-        p.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
+        baseRot = side > 0 ? -Math.PI / 2 : Math.PI / 2;
         if (p.userData.pointLight) lights.push(p.userData.pointLight);
         animated.push(p);
       } else if (kind < 0.92) {
         p = this._propCables(rng, dis);
-        xPos = cx + rng.range(-2, 2);
-        yPos = this.ceilingAt(z) * rng.range(0.6, 0.85);
+        xPos = rng.range(-2, 2);
+        yPos = this.ceilingAt(sa) * rng.range(0.6, 0.85);
       } else if (kind < 0.97) {
         p = this._propRubble(rng, dis);
-        xPos = clearOfCorridor(cx + side * rng.range(2, wallR * 0.7), cx, side);
+        xPos = clearOfCorridor(side * rng.range(2, wallR * 0.7), side);
       } else {
         p = this._propCatwalk(rng, dis);
-        xPos = cx + side * rng.range(1.5, 4);   // overhead, never in the way
-        yPos = this.ceilingAt(z) * rng.range(0.55, 0.75);
-        p.rotation.y = rng.range(-0.2, 0.2);
+        xPos = side * rng.range(1.5, 4);   // overhead, never in the way
+        yPos = this.ceilingAt(sa) * rng.range(0.55, 0.75);
+        baseRot = rng.range(-0.2, 0.2);
       }
 
       if (p) {
-        p.position.set(xPos, yPos, z);
-        if (!p.rotation.y && kind > 0.44 && kind < 0.85) p.rotation.y = rng.range(0, 6.28);
+        // Place through the route's local frame so props sit against the walls
+        // and turn with the corridor instead of staying axis-aligned.
+        this.frameAt(sa, frame);
+        p.position.set(frame.x + frame.rx * xPos, yPos, frame.z + frame.rz * xPos);
+        if (!baseRot && kind > 0.44 && kind < 0.85) baseRot = rng.range(0, 6.28);
+        p.rotation.y = baseRot + frame.h;
         group.add(p);
       }
     }
@@ -628,9 +802,9 @@
     delete this.chunks[ci];
   };
 
-  /* Ensure the cave exists around the player's z, recycling what is behind. */
-  Cave.prototype.streamTo = function (z) {
-    var ci = Math.max(0, Math.floor(-z / CHUNK_LEN));
+  /* Ensure the cave exists around the player's arc position, recycling behind. */
+  Cave.prototype.streamTo = function (sArc) {
+    var ci = Math.max(0, Math.floor(sArc / CHUNK_LEN));
     for (var i = Math.max(0, ci - KEEP_BEHIND); i <= ci + KEEP_AHEAD; i++) this._buildChunk(i);
     for (var key in this.chunks) {
       var k = parseInt(key, 10);
@@ -673,12 +847,11 @@
     this.stage.scene.add(this.dust);
   };
 
-  Cave.prototype.update = function (dt, time, playerZ) {
+  Cave.prototype.update = function (dt, time, playerS) {
     // dust follows the player so the field never runs out
     if (this.dust) {
-      this.dust.position.z = playerZ;
-      this.dust.position.x = this.centerX(playerZ);
-      this.dust.rotation.y = time * 0.01;
+      this.pointAt(playerS, this.dust.position);
+      this.dust.rotation.y = this.headingAt(playerS);
       var a = this.dust.geometry.attributes.position;
       // gentle upward drift, wrapped
       for (var i = 1; i < a.array.length; i += 3) {

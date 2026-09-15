@@ -223,6 +223,8 @@
 
   var HURT_TIME = 0.26;
   var _v = new THREE.Vector3();
+  var _aim = new THREE.Vector3();
+  var _frame = { x: 0, z: 0, h: 0, rx: 1, rz: 0 };
 
   function Monster(spec, world) {
     this.spec = spec;
@@ -327,20 +329,25 @@
     return this.totalWords ? 1 - this.wordIndex / this.totalWords : 0;
   };
 
-  Monster.prototype.worldZ = function () { return this.world.stationZ - this.dist; };
+  /* Arc length along the route. Monsters stand ahead of the rail stop and walk
+   * back down the route toward it, so the cave can bend between them and the
+   * player without any of them drifting through a wall. */
+  Monster.prototype.worldArc = function () { return this.world.stationS + this.dist; };
 
   Monster.prototype.syncTransform = function () {
-    var z = this.worldZ();
-    var cx = this.world.cave ? this.world.cave.centerX(z) : 0;
+    var cave = this.world.cave;
+    if (!cave) return;
+    var frame = cave.frameAt(this.worldArc(), _frame);
     // Lanes funnel inward as a monster closes. A creature that walked its full
     // spawn offset all the way to melee range would end up 60 degrees off-axis
     // and half off the screen exactly when it starts hurting you.
     var spread = 0.3 + 0.7 * CT.clamp((this.dist - this.meleeDist) / 15, 0, 1);
-    this.group.position.set(cx + this.laneX * spread, 0, z);
+    var lat = this.laneX * spread;
+    this.group.position.set(frame.x + frame.rx * lat, 0, frame.z + frame.rz * lat);
     // Always face the player.
     this.group.rotation.y = Math.atan2(
       this.world.stationX - this.group.position.x,
-      this.world.stationZ - z
+      this.world.stationZ - this.group.position.z
     );
   };
 
@@ -353,6 +360,25 @@
       out.y += this.height;
     }
     return out;
+  };
+
+  /* Cache how far this specimen sits from the crosshair, in units of half the
+   * screen height. Targeting uses it to pick whichever candidate is nearest to
+   * where the player is already looking, so firing back and forth between two
+   * specimens does not send the aim skidding across the chamber.
+   *
+   * ndc.x is scaled by the aspect ratio because normalised device coordinates
+   * run -1..1 on both axes regardless of window shape: without it, horizontal
+   * separation — which is how specimens are actually spread out — would count
+   * for far less than it looks like on screen. */
+  Monster.prototype.updateAim = function () {
+    var cam = this.world.stage && this.world.stage.camera;
+    if (!cam) { this.aimDist = 9; return; }
+    this.headWorld(_aim);
+    _aim.project(cam);
+    if (_aim.z > 1) { this.aimDist = 9; return; }      // behind the camera
+    var x = _aim.x * (cam.aspect || 1);
+    this.aimDist = Math.sqrt(x * x + _aim.y * _aim.y);
   };
 
   Monster.prototype.hitWorld = function (out) {
@@ -443,6 +469,7 @@
 
     this.hurtT = Math.max(0, this.hurtT - dt / HURT_TIME);
     this.syncTransform();
+    this.updateAim();
 
     // white-hot flash on hit
     var f = this.hurtT * this.hurtT;

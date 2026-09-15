@@ -89,7 +89,7 @@
       if (k === 'quality' && game && game.cave) {
         // Rebuild the cave at the new detail level; monsters pick it up on spawn.
         game.cave.rebuild();
-        game.cave.streamTo(game.stationZ - 40);
+        game.cave.streamTo(game.stationS + 40);
       }
       if (k.indexOf('Volume') >= 0 || k === 'keyClicks') CT.Audio.refreshVolumes();
     });

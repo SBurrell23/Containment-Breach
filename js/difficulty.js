@@ -86,7 +86,10 @@
     // Travel between stations.
     travelTime: 4.2,
     bossTravelTime: 6.5,
-    stationSpacing: 26,
+    // Far enough apart that the route can fit a corner between the end of one
+    // chamber's sightline (spawnDistMax + margin) and arrival at the next stop.
+    // Travel time is fixed, so a longer gap just means the rail moves faster.
+    stationSpacing: 46,
 
     // Two-player scaling: a second player adds this much work.
     coopWordMul: 0.82,
