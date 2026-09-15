@@ -1,104 +1,51 @@
-/* Cave Typer — word bank and difficulty-scaled word generation.
+/* Cave Typer — difficulty-scaled word selection.
  *
- * Words are bucketed by length. Difficulty raises the length band, then starts
- * layering on modifiers (compound words, hyphenation, capitals, digits) so that
- * late-game words punish exactly the things that slow a fast typist down:
- * shift keys, symbols, and unfamiliar letter pairs. */
+ * The words themselves live in js/wordbank.js, which is GENERATED and
+ * dictionary-verified (see tools/build-wordbank.js). This file only decides
+ * which of them a given chamber gets.
+ *
+ * Selection is by length band, because length is what actually costs a typist
+ * time. On top of that, modifiers unlock progressively so late-game words
+ * punish the things that slow a fast typist down specifically: shift keys,
+ * hyphens, underscores and digits.
+ */
 (function (global) {
   'use strict';
   var CT = (global.CaveTyper = global.CaveTyper || {});
 
-  /* Ordinary English, short -> long. Deliberately common so early game flows. */
-  var COMMON = {
-    3: ('ash bug jar lab lid vat rat gas arm eye jaw rib gel ooze pit fog dim raw rot wet dry ' +
-        'cut hit run cry hex ion pod tag web ice tar sap fur maw cog vet gut ash den bio dna').split(' '),
-    4: ('acid bone cage cell claw cold dark dust fang fear gore grim hive host limb mold slab ' +
-        'skin tank tube vial wall worm gaze husk drip flee gene hurt leak mask numb pale pulp ' +
-        'rust sick slug spew toxi vein bile clot germ gasp echo').split(' '),
-    5: ('agony blood bleak brain claws creep dread flesh gland grave larva lever mutat nerve ' +
-        'organ panic plague probe scalp serum shard skull slime spawn spine spore sting swarm ' +
-        'toxic tumor viral vomit wound decay fetid gauze hatch morgue putri').split(' '),
-    6: ('airway anchor autopsy biopsy bunker cavern cursed defect dosage embryo enzyme fester ' +
-        'fossil gasket gauges hazard incise larvae lesion marrow morgue mutate necrid plasma ' +
-        'poison putrid quarry rabies reflex sample scream sealed sepsis sinews sutures tissue ' +
-        'trauma venoms vessel virals writhe').split(' '),
-    7: ('abattoir ammonia autopsy biohaz cadaver capsule caustic chamber clotted colonic ' +
-        'corpses crawler culture decayed dissect entrail exposed fissure gristle harvest ' +
-        'implant isolate lattice malaise mandible necrose nematod nostril nucleus organic ' +
-        'outbrek parasit pathoge putrefy rupture scalpel sealant secrete serumic shrieks ' +
-        'siphons specimen sterile stomach syringe tendril toxinic tumours viscera').split(' '),
-    8: ('abnormal adhesive afflicts ambulate anaerobe antibody aperture asphyxia bacteria ' +
-        'biohazard bleeding calcined carotid cauterize chitinous clinical coagulate collapse ' +
-        'contagion corrosive cranium cytology dampened decanted demented dendrite detonate ' +
-        'diagnosis dissolve embryonic emissions engorged epidermis epidemic eviscera excision ' +
-        'exposure fermented festering filament fractured gangrene gestated glandular hemorrhage ' +
-        'hypoxia incision incubate infected inflamed ingested inhibitor injected isolated ' +
-        'laceration lobotomy malignant membrane metabolic morbidity mutation necrosis nocturnal ' +
-        'olfactory organelle outbreak parasite pathogen peristal petrified pituitary placental ' +
-        'protocol pulmonary putrefied quarantine reagents recessive redacted respirat ruptured ' +
-        'salivate scavenger secretion sedative septic skeletal specimens sterilize stimulus ' +
-        'subjects suppurate surgical symbiont syndrome synthesis tentacles terminal toxicity ' +
-        'transfuse tremors ulcerate vacuoles ventral vertebrae virulent viscosity vivisect').split(' ')
-  };
+  function bank() { return CT.WordBank; }
 
-  /* Facility jargon — longer, nastier, thematically on-point. Used from mid-game up. */
-  var TECHNICAL = ('containment decontaminate biocontainment centrifuge cryogenics ' +
-    'electrophoresis immunosuppress microbiology neurotoxicity pathogenesis ' +
-    'radiochemistry spectrometry transgenic xenobiology chromatography endocrinology ' +
-    'haematology histopathology immunoglobulin mitochondria oligonucleotide ' +
-    'phagocytosis recombinant staphylococcus teratogenic cytoplasmic epidemiology ' +
-    'genotoxicity hypothalamus intravenous lymphocytes metamorphosis neurological ' +
-    'osteoblastic parasitology physiological quarantined resuscitate serological ' +
-    'thermoregulation ultrastructure vasoconstrict autoclaved bioreactor ' +
-    'chemiluminescent desiccator electrophoretic formaldehyde glutaraldehyde ' +
-    'hemocytometer incubation karyotyping luminescence micropipette nanoparticle ' +
-    'organophosphate perfusion radioisotope sequencing titration ' +
-    'vivisectionist zoonotic anaesthesia bioluminescent cauterization ' +
-    'differentiation encephalopathy fluorescence gastrointestinal ' +
-    'histocompatibility immunofluorescence lyophilization myelination ' +
-    'neurodegenerative osmoregulation pharmacokinetics respiratory ' +
-    'spectrophotometer transcriptase ultracentrifuge').split(' ');
-
-  /* Facility asset tags — the late-game symbol/digit punishers. */
+  /* Facility asset tags — the late-game symbol/digit punishers. These are not
+   * claimed to be dictionary words; they are equipment labels, and they read as
+   * such. Their component words are real and validated. */
   var TAG_PREFIX = ('SPEC VAT LAB SEC BIO GEN TOX RAD VIV NEC HEM CRY INC SUB').split(' ');
   var TAG_WORDS = ('breach purge reflux lockdown override failsafe sterilize venting ' +
-    'collapse cascade rupture bleedout meltdown scrubber').split(' ');
-
-  /* Boss words: long compound horrors. */
-  var BOSS_ROOTS_A = ('necro bio xeno hemo crypto myco viro terato patho thanato sarco ' +
-    'osteo neuro dermo cyto gastro hyper sub trans meta proto').split(' ');
-  var BOSS_ROOTS_B = ('genesis phage morphosis culture synthesis cascade reactor lattice ' +
-    'vector chamber protocol anomaly organism specimen incubator terminus ' +
-    'threshold aberrant construct').split(' ');
-
-  function bucketFor(len) {
-    if (len <= 3) return COMMON[3];
-    if (len >= 8) return COMMON[8];
-    return COMMON[len];
-  }
+    'collapse cascade rupture meltdown scrubber shutdown quarantine containment ' +
+    'evacuation incineration decontamination').split(' ');
 
   /* Difficulty is a 0..1-ish scalar derived from encounter index (can exceed 1). */
   function lengthBand(difficulty) {
-    // 3-5 chars at the start, creeping to 11-15 by the time it is brutal.
+    // 3-5 chars at the start, creeping to 13-18 by the time it is brutal.
     var lo = 3 + difficulty * 7.0;
     var hi = 5 + difficulty * 9.5;
     return [Math.max(3, Math.round(lo)), Math.max(4, Math.round(hi))];
   }
 
+  /* One word whose length falls in [lo, hi]. The band widens rather than
+   * failing: the bank tops out at 16 characters, so a late-game band asking for
+   * 13-18 simply gets the longest words on file. */
   function pickByLength(rng, lo, hi) {
-    // Gather candidates across the band, preferring the technical list when long.
+    var B = bank();
     var pool = [];
     for (var L = lo; L <= hi; L++) {
-      var b = bucketFor(L);
-      for (var i = 0; i < b.length; i++) if (b[i].length >= lo && b[i].length <= hi) pool.push(b[i]);
+      if (B.byLength[L]) pool = pool.concat(B.byLength[L]);
     }
-    for (var j = 0; j < TECHNICAL.length; j++) {
-      if (TECHNICAL[j].length >= lo && TECHNICAL[j].length <= hi) pool.push(TECHNICAL[j]);
+    for (var widen = 1; !pool.length && widen < 14; widen++) {
+      var a = lo - widen, b = hi + widen;
+      if (B.byLength[a]) pool = pool.concat(B.byLength[a]);
+      if (B.byLength[b]) pool = pool.concat(B.byLength[b]);
     }
-    if (!pool.length) {
-      // Band sits above anything we have on file — build a compound instead.
-      return rng.pick(BOSS_ROOTS_A) + rng.pick(BOSS_ROOTS_B);
-    }
+    if (!pool.length) pool = B.all;
     return rng.pick(pool);
   }
 
@@ -134,9 +81,13 @@
       return applyModifiers(w, rng, difficulty);
     },
 
-    /* Boss words are always long compounds — a sustained, punishing read. */
+    /* Boss words are the longest real words on file — a sustained, punishing
+     * read. These used to be invented Greek/Latin compounds ("cryptothreshold"),
+     * which looked the part but were not words, and were miserable to type from
+     * sight because no spelling instinct helped. */
     makeBoss: function (rng, difficulty) {
-      var w = rng.pick(BOSS_ROOTS_A) + rng.pick(BOSS_ROOTS_B);
+      var lo = Math.round(11 + difficulty * 2);
+      var w = pickByLength(rng, lo, 16);
       if (difficulty > 0.5 && rng.bool(0.35)) w = w.charAt(0).toUpperCase() + w.slice(1);
       if (difficulty > 0.9 && rng.bool(0.3)) w = w + '-' + rng.int(100, 999);
       return w;
@@ -166,6 +117,12 @@
     makeRevive: function (rng) {
       return rng.pick(['revive', 'stabilize', 'adrenaline', 'medkit', 'suture', 'restart', 'defib']);
     }
+  };
+
+  /* Every word the bank can emit, for tools/check-dictionary.js. TAG_PREFIX is
+   * excluded deliberately: those are equipment label prefixes, not words. */
+  Words.everyWord = function () {
+    return bank().all.concat(TAG_WORDS);
   };
 
   CT.Words = Words;

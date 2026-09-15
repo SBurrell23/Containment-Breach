@@ -9,7 +9,7 @@ sandbox.window = sandbox;
 sandbox.globalThis = sandbox;
 vm.createContext(sandbox);
 
-for (const f of ['js/rng.js', 'js/words.js', 'js/difficulty.js']) {
+for (const f of ['js/rng.js', 'js/wordbank.js', 'js/words.js', 'js/difficulty.js']) {
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', f), 'utf8'), sandbox, { filename: f });
 }
 
