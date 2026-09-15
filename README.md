@@ -13,8 +13,8 @@ you and starts taking your health bar apart. The game is how deep you get.
 
 Vanilla JavaScript, three.js, WebRTC. **Every visual is generated in code** — all the
 geometry and all the textures. There is not a single image or model file in the
-project, and every sound effect is synthesised from oscillators and noise at runtime.
-The only asset on disk is the music loop.
+project. Most of the audio is synthesised from oscillators and noise at runtime too;
+the only assets on disk are the music loop and the rifle.
 
 ---
 
@@ -160,7 +160,18 @@ rather than preference: the fog is the draw distance, and a wider FOV shrinks ev
 specimen and every word label at exactly the moment the game is asking you to read
 them.
 
-**Audio** — master, weapon/monster SFX, music, and keystroke clicks, all independent. The music is *Deep Cave Echoes* by steezyb, looped and mixed
+**Audio** — master, weapon/monster SFX, music, and keystroke clicks, all independent.
+
+The rifle is a sampled one-shot, pitched randomly by about ±11% on every shot so that
+thirty rounds in a row never sound like a loop — a tight enough spread that it still
+reads as one weapon rather than a different gun each time. The shot that finishes a
+specimen off is the same recording pitched down and driven harder, with a synthesised
+low end underneath for weight the sample cannot carry. Everything else — impacts,
+deaths, growls, the UI — is still built from oscillators and one shared noise buffer.
+
+Both sampled sounds decode through `fetch`, which browsers block on `file://` pages.
+There they simply fail, and the procedural gunshot and drone the game shipped with
+take over; nothing goes silent. The music is *Deep Cave Echoes* by steezyb, looped and mixed
 deliberately low so it sits behind the rifle and the specimens; it is routed through
 the same WebAudio graph as everything else, so it opens up from muffled to full-band
 as the run gets deeper. If the file cannot be played the game falls back to the
@@ -229,7 +240,7 @@ css/style.css           HUD, floating labels, menus
 js/rng.js               seeded RNG + value noise — all procedural generation funnels here
 js/words.js             word bank and difficulty-scaled word generation
 js/settings.js          settings store + the self-rendering options menu
-audio/                  the music loop (the only asset file in the project)
+audio/                  the music loop and the rifle sample
 js/audio.js             every sound effect, synthesised from oscillators and noise
 js/difficulty.js        the curve, encounter planning, and a headless pacing simulator
 js/scene.js             renderer, camera rig, lighting, quality plumbing

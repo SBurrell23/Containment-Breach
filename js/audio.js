@@ -2,10 +2,10 @@
  *
  * Bus layout:   [voice] -> sfx|music gain -> master gain -> compressor -> out
  *
- * Every effect — the rifle, the impacts, the deaths, the growls, the UI — is
- * built from oscillators and one shared white-noise buffer. The only sampled
- * audio is the music track, which rides the music bus alongside the
- * synthesised drone that acts as its fallback. */
+ * Every effect — the impacts, the deaths, the growls, the UI — is built from
+ * oscillators and one shared white-noise buffer. Two things are sampled: the
+ * music loop, and the rifle. Both have a synthesised fallback that takes over
+ * if the file cannot be loaded, so the game is never silent. */
 (function (global) {
   'use strict';
   var CT = (global.CaveTyper = global.CaveTyper || {});
@@ -22,6 +22,10 @@
   // The track is a bed, not a feature. This sits under the player's own music
   // slider so even at 100% it stays behind the rifle and the specimens.
   var TRACK_GAIN = 0.34;
+
+  var SHOT_URL = 'audio/gunshot.mp3';
+  var shotBuf = null;          // decoded one-shot, null until it loads
+  var shotLoad = 'idle';       // idle | loading | ready | failed
 
   function S() { return CT.Settings; }
 
@@ -70,6 +74,51 @@
     master.gain.setTargetAtTime(mas, ctx.currentTime, 0.02);
     busSfx.gain.setTargetAtTime(s ? s.getNum('sfxVolume') : 0.9, ctx.currentTime, 0.02);
     busMusic.gain.setTargetAtTime(mv, ctx.currentTime, 0.05);
+  }
+
+  /* The rifle sample. Decoded into an AudioBuffer rather than played from an
+   * <audio> element, because a gunshot needs to fire several times a second,
+   * be pitched, and be panned — none of which an element does well.
+   *
+   * fetch() is blocked on file:// pages, so this simply fails there and the
+   * synthesised shot below stays in service. That is the whole fallback story:
+   * the game had a perfectly good procedural gunshot before this sample
+   * existed, so there is nothing to degrade to. */
+  function loadShot() {
+    if (shotLoad !== 'idle' || !ctx) return;
+    shotLoad = 'loading';
+    var done = function (buf) { shotBuf = buf; shotLoad = 'ready'; };
+    var fail = function () { shotLoad = 'failed'; };
+
+    if (!global.fetch) { fail(); return; }
+    global.fetch(SHOT_URL)
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.arrayBuffer();
+      })
+      .then(function (ab) {
+        // Safari still wants the callback form, so cover both.
+        var p = ctx.decodeAudioData(ab, done, fail);
+        if (p && p.then) p.then(done).catch(fail);
+      })
+      .catch(fail);
+  }
+
+  /* One firing of the sample.
+   *
+   * `rate` is the pitch: the same recording at a slightly different playback
+   * rate is what stops thirty shots in a row from sounding like a loop. Real
+   * gunfire varies in exactly this way, and a tight spread reads as the same
+   * weapon rather than as a different one each time. */
+  function playShot(dest, rate, gain) {
+    var src = ctx.createBufferSource();
+    src.buffer = shotBuf;
+    src.playbackRate.value = rate;
+    var g = ctx.createGain();
+    g.gain.value = gain;
+    src.connect(g); g.connect(dest);
+    src.start();
+    return src;
   }
 
   /* ---- primitive voices -------------------------------------------------- */
@@ -131,6 +180,7 @@
       if (ctx && ctx.state === 'suspended') ctx.resume();
       started = true;
       applyVolumes();
+      loadShot();
       Audio._nudgeTrack();
     },
 
@@ -158,26 +208,52 @@
       noise(busSfx, 0.07, 0.06, 'highpass', 1200, 400, 1);
     },
 
-    /* Completing a word = firing. Layered: click, body, noise crack, tail. */
+    /* Completing a word = firing. */
     shot: function (pan, power) {
       if (!ctx || !enabled) return;
       power = power === undefined ? 1 : power;
       var d = panned(busSfx, pan);
-      // transient
-      noise(d, 0.035, 0.5 * power, 'highpass', 5000, 2200, 0.7);
-      // body crack
-      noise(d, 0.16, 0.42 * power, 'bandpass', 1600, 260, 0.9);
-      // low thump
-      tone(d, 'sine', 180, 46, 0.19, 0.55 * power);
-      tone(d, 'triangle', 320, 80, 0.10, 0.22 * power);
-      // cave tail
-      noise(d, 0.55, 0.10 * power, 'lowpass', 900, 220, 0.6);
+
+      if (shotLoad === 'ready') {
+        // +/- ~11% pitch and a little level variation. Enough that no two shots
+        // are identical, tight enough that it still reads as one weapon.
+        playShot(d, 0.90 + Math.random() * 0.22, 0.85 * power * (0.9 + Math.random() * 0.2));
+        // The cave keeps its own tail on the sample, which is recorded dry.
+        noise(d, 0.42, 0.055 * power, 'lowpass', 850, 220, 0.6);
+        return;
+      }
+      Audio._synthShot(d, power);
     },
 
-    /* charged shot for finishing a monster's last word */
+    /* Charged shot for finishing a specimen off. */
     shotHeavy: function (pan) {
       if (!ctx || !enabled) return;
       var d = panned(busSfx, pan);
+
+      if (shotLoad === 'ready') {
+        // Same recording pitched down and driven harder: a heavier round out of
+        // the same rifle, rather than an unrelated sound.
+        playShot(d, 0.74 + Math.random() * 0.13, 1.0 * (0.92 + Math.random() * 0.16));
+        // Synthesised low end underneath for the weight the sample cannot carry.
+        tone(d, 'sine', 132, 30, 0.34, 0.5);
+        noise(d, 0.85, 0.1, 'lowpass', 700, 160, 0.5);
+        return;
+      }
+      Audio._synthShotHeavy(d);
+    },
+
+    /* The procedural gunshot the game shipped with. Still the fallback whenever
+     * the sample cannot be loaded — notably on a file:// page, where fetch is
+     * blocked. Layered: transient, body crack, low thump, cave tail. */
+    _synthShot: function (d, power) {
+      noise(d, 0.035, 0.5 * power, 'highpass', 5000, 2200, 0.7);
+      noise(d, 0.16, 0.42 * power, 'bandpass', 1600, 260, 0.9);
+      tone(d, 'sine', 180, 46, 0.19, 0.55 * power);
+      tone(d, 'triangle', 320, 80, 0.10, 0.22 * power);
+      noise(d, 0.55, 0.10 * power, 'lowpass', 900, 220, 0.6);
+    },
+
+    _synthShotHeavy: function (d) {
       noise(d, 0.05, 0.6, 'highpass', 4200, 1800, 0.7);
       noise(d, 0.28, 0.5, 'bandpass', 1100, 180, 0.8);
       tone(d, 'sine', 140, 32, 0.34, 0.7);
@@ -500,6 +576,15 @@
 
     stopAll: function () {
       Audio.stopMusic();
+    },
+
+    shotInfo: function () {
+      return {
+        state: shotLoad,
+        seconds: shotBuf ? +shotBuf.duration.toFixed(3) : null,
+        channels: shotBuf ? shotBuf.numberOfChannels : null,
+        sampleRate: shotBuf ? shotBuf.sampleRate : null
+      };
     },
 
     /* Diagnostics for the music track. The element is deliberately detached

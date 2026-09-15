@@ -53,6 +53,7 @@ jobs:
           test -f _site/index.html
           test -f _site/css/style.css
           test -f _site/audio/deep-cave-echoes.mp3
+          test -f _site/audio/gunshot.mp3
           for f in rng words settings audio difficulty scene cave effects records entities typing ui codex net game main; do
             test -f "_site/js/$f.js" || { echo "missing js/$f.js"; exit 1; }
           done
