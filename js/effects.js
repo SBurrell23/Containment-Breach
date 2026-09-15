@@ -184,8 +184,15 @@
   Effects.prototype._buildRifle = function (side, cellColor) {
     var dis = [];
     var group = new THREE.Group();
-    var steel = new THREE.MeshStandardMaterial({ color: 0x23282d, roughness: 0.42, metalness: 0.85 });
-    var polymer = new THREE.MeshStandardMaterial({ color: 0x14171a, roughness: 0.82, metalness: 0.1 });
+    // The rifle is the one thing on screen at all times and a hand's width from
+    // the camera, so it is where bare plastic shows most. Tighter tiling than
+    // the props get: at this range a 2x tile would read as wallpaper.
+    var steel = CT.detailMat(
+      new THREE.MeshStandardMaterial({ color: 0x23282d, roughness: 0.42, metalness: 0.85 }),
+      'metal', 4, 0.012);
+    var polymer = CT.detailMat(
+      new THREE.MeshStandardMaterial({ color: 0x14171a, roughness: 0.82, metalness: 0.1 }),
+      'metal', 6, 0.010);
     var cellMat = new THREE.MeshStandardMaterial({
       color: 0x0a0d0a, emissive: cellColor, emissiveIntensity: 0.9
     });

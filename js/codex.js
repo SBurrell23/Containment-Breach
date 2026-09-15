@@ -110,6 +110,12 @@
       return;
     }
 
+    // The same surface detail the live specimens get, so the file photo looks
+    // like the thing the player met rather than a clean casting of it.
+    var dmats = this.instance.materials || [];
+    var rep = CT.clamp(Math.round(5 / (def.size.height || 1.5)), 1, 6);
+    for (var di = 0; di < dmats.length; di++) CT.detailMat(dmats[di], 'hide', rep, 0.014);
+
     this.pivot.add(this.instance.group);
     this.t = 0;
     this.stateCycle = 0;

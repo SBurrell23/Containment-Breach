@@ -256,6 +256,18 @@
       });
       this.name = def.name || 'SPECIMEN';
     }
+    /* Surface detail, applied centrally rather than inside fourteen model
+     * files. CT.detailMat leaves alone anything glowing or transparent — the
+     * eyes, the goo, the exposed cores are meant to read as light sources —
+     * so what this touches is exactly the flesh, chitin and plate that was
+     * otherwise a smooth gradient. Tiling is per-specimen, scaled against its
+     * height, so a six-metre boss is not wearing a rat's pores. */
+    var detailRep = CT.clamp(Math.round(5 / ((def.size.height || 1.5) * (spec.scale || 1))), 1, 6);
+    var dmats = built.materials || [];
+    for (var di = 0; di < dmats.length; di++) {
+      CT.detailMat(dmats[di], 'hide', detailRep, 0.014);
+    }
+
     this.model = built;
     this.group = built.group;
     this.group.scale.setScalar(spec.scale || 1);

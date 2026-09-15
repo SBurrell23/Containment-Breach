@@ -42,85 +42,6 @@
     return t;
   }
 
-  /* Grime for the rock, as a tiling texture rather than as vertex colour.
-   *
-   * The wall mesh has a vertex roughly every two and a half units, so anything
-   * finer than about a five-unit wavelength cannot be expressed in vertex
-   * colour at all — it just aliases into blotches. That is most of what makes
-   * untextured low-poly rock look moulded: the large shapes are stone, and
-   * every surface between them is a perfectly smooth gradient. So the broad
-   * marks stay in the vertex colours, where they belong, and the close-range
-   * dirt lives here, where mesh density is irrelevant.
-   *
-   * Used as both map and bumpMap: the same field that darkens the rock also
-   * pushes it around, which is what stops it reading as a decal printed on
-   * plastic. Generated once and shared by every wall chunk.
-   */
-  function grimeTexture() {
-    if (_tex.grime) return _tex.grime;
-    var N = 256;
-    var c = document.createElement('canvas');
-    c.width = c.height = N;
-    var g = c.getContext('2d');
-    var img = g.createImageData(N, N);
-    var rng = new CT.Rng(0x9e3779b9);
-
-    /* Value noise on a wrapping lattice, so the tile has no seam. */
-    function lattice(size) {
-      var a = new Float32Array(size * size);
-      for (var i = 0; i < a.length; i++) a[i] = rng.next();
-      return a;
-    }
-    function sample(a, size, u, v) {
-      var x = u * size, y = v * size;
-      var x0 = Math.floor(x), y0 = Math.floor(y);
-      var fx = x - x0, fy = y - y0;
-      fx = fx * fx * (3 - 2 * fx);
-      fy = fy * fy * (3 - 2 * fy);
-      var x1 = (x0 + 1) % size, y1 = (y0 + 1) % size;
-      x0 = ((x0 % size) + size) % size; y0 = ((y0 % size) + size) % size;
-      var s00 = a[y0 * size + x0], s10 = a[y0 * size + x1];
-      var s01 = a[y1 * size + x0], s11 = a[y1 * size + x1];
-      return (s00 * (1 - fx) + s10 * fx) * (1 - fy) + (s01 * (1 - fx) + s11 * fx) * fy;
-    }
-
-    var oct = [4, 8, 16, 32, 64].map(lattice);
-    var sizes = [4, 8, 16, 32, 64];
-    var amps = [0.34, 0.26, 0.20, 0.13, 0.07];
-    // Stretched vertically so the dirt reads as having run downhill.
-    var drip = lattice(48);
-
-    for (var y = 0; y < N; y++) {
-      for (var x = 0; x < N; x++) {
-        var u = x / N, v = y / N;
-        var n = 0;
-        for (var o = 0; o < oct.length; o++) n += amps[o] * sample(oct[o], sizes[o], u, v);
-        // Vertical streaking: same field, squashed along v.
-        var st = sample(drip, 48, u, v * 0.22);
-        n = n * 0.78 + st * 0.22;
-        // Centred high so the map modulates the rock rather than halving its
-        // albedo: the cave is meant to be dark because the lamp is weak, not
-        // because every surface has been painted grey. The contrast stretch is
-        // what makes the dark end read as dirt rather than as shading.
-        var val = 0.70 + (n - 0.5) * 1.25;
-        if (val < 0.08) val = 0.08; else if (val > 1) val = 1;
-        // A scatter of dark pits and pale mineral flecks.
-        var r = rng.next();
-        if (r < 0.014) val *= 0.45;
-        else if (r > 0.992) val = Math.min(1, val * 1.9);
-        var b = Math.round(val * 255);
-        var k = (y * N + x) * 4;
-        img.data[k] = b; img.data[k + 1] = b; img.data[k + 2] = b; img.data[k + 3] = 255;
-      }
-    }
-    g.putImageData(img, 0, 0);
-    var t = new THREE.CanvasTexture(c);
-    t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.anisotropy = 4;
-    _tex.grime = t;
-    return t;
-  }
-
   var SIGN_TEXTS = [
     ['BIOHAZARD', 'LEVEL 4'], ['NO ENTRY', 'SECTOR 7'], ['DECON', 'REQUIRED'],
     ['SPECIMEN', 'TRANSIT'], ['QUARANTINE', 'IN EFFECT'], ['CRYO', 'STORAGE'],
@@ -156,6 +77,9 @@
   function disposeTextures() {
     for (var k in _tex) { if (_tex[k]) _tex[k].dispose(); }
     _tex = {};
+    // Deliberately not CT.detailDispose(): the surface-detail tiles are shared
+    // with the rifle and the specimens, which outlive any one cave, and there
+    // are only a handful of them.
   }
 
   /* ---- palette ----------------------------------------------------------- */
@@ -515,8 +439,8 @@
 
     var mat = new THREE.MeshStandardMaterial({
       vertexColors: true,
-      map: grimeTexture(),
-      bumpMap: grimeTexture(),
+      map: CT.detail('rock'),
+      bumpMap: CT.detail('rock'),
       bumpScale: 0.055,
       roughness: 0.97,
       metalness: 0.03,
@@ -533,7 +457,15 @@
 
   /* ---- props ------------------------------------------------------------- */
 
-  function trackMat(list, m) { list.push(m); return m; }
+  /* Props take surface detail by default. Doing it here rather than at every
+   * call site means a prop added later cannot quietly ship as bare plastic;
+   * `kind` picks which surface it is, and CT.detailMat skips anything glowing
+   * or transparent, which is exactly the set that detail would ruin. */
+  function trackMat(list, m, kind, repeat) {
+    CT.detailMat(m, kind || 'metal', repeat || 2, 0.018);
+    list.push(m);
+    return m;
+  }
   function trackGeo(list, g) { list.push(g); return g; }
 
   Cave.prototype._propContainmentPod = function (rng, dis) {
@@ -556,20 +488,28 @@
     var broken = rng.bool(0.55);
     var glassGeo = trackGeo(dis, new THREE.CylinderGeometry(r, r, h, 14, 1, true,
       broken ? rng.range(0, 6) : 0, broken ? rng.range(3.4, 5.4) : Math.PI * 2));
+    /* depthWrite off, and drawn last. Two overlapping transparent meshes are
+     * sorted against each other by object centroid, so as the player's rig
+     * swings past a pod the glass and its occupant trade places in the order —
+     * and whichever went first wrote depth and cut the other one out. That was
+     * the occupant blinking in and out of its tank. */
     var glassMat = trackMat(dis, new THREE.MeshStandardMaterial({
       color: 0x8fd6e0, transparent: true, opacity: 0.22, roughness: 0.15,
-      metalness: 0.0, side: THREE.DoubleSide
+      metalness: 0.0, side: THREE.DoubleSide, depthWrite: false
     }));
     var glass = new THREE.Mesh(glassGeo, glassMat);
     glass.position.y = h / 2 + 0.3;
+    glass.renderOrder = 3;
     g.add(glass);
 
     // occupant / residue
     if (rng.bool(0.75)) {
       var occGeo = trackGeo(dis, new THREE.IcosahedronGeometry(r * rng.range(0.45, 0.75), 1));
+      // Opaque: it is already behind tinted glass, so the 15% it was giving
+      // back bought nothing and cost it a place in the transparent sort.
       var occMat = trackMat(dis, new THREE.MeshStandardMaterial({
         color: pal.goo, emissive: pal.goo, emissiveIntensity: rng.range(0.4, 1.1),
-        roughness: 0.6, flatShading: true, transparent: true, opacity: 0.85
+        roughness: 0.6, flatShading: true
       }));
       var occ = new THREE.Mesh(occGeo, occMat);
       occ.position.y = rng.range(0.6, h * 0.7);
@@ -706,7 +646,7 @@
     var geo = trackGeo(dis, new THREE.ConeGeometry(r, h, rng.int(5, 8), 2));
     var mat = trackMat(dis, new THREE.MeshStandardMaterial({
       color: pal.rockDark, roughness: 0.98, flatShading: true
-    }));
+    }), 'rock', 1);
     var m = new THREE.Mesh(geo, mat);
     m.position.y = up ? h / 2 : -h / 2;
     if (!up) m.rotation.z = Math.PI;
@@ -777,7 +717,7 @@
     var g = new THREE.Group();
     var mat = trackMat(dis, new THREE.MeshStandardMaterial({
       color: pal.rockDark, roughness: 0.98, flatShading: true
-    }));
+    }), 'rock', 1);
     var n = rng.int(3, 8);
     for (var i = 0; i < n; i++) {
       var s = rng.range(0.2, 0.9);

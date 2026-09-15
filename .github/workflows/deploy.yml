@@ -55,7 +55,7 @@ jobs:
           test -f _site/audio/deep-cave-echoes.mp3
           test -f _site/audio/gunshot.mp3
           test -f _site/audio/cave-ambience.mp3
-          for f in rng wordbank words settings audio difficulty scene cave effects records entities typing ui codex net game main; do
+          for f in rng wordbank words texture settings audio difficulty scene cave effects records entities typing ui codex net game main; do
             test -f "_site/js/$f.js" || { echo "missing js/$f.js"; exit 1; }
           done
           for f in grunts mids bosses; do
@@ -77,7 +77,7 @@ jobs:
           done
           echo "checked $refs local asset references"
           echo "audio: $(du -h _site/audio/deep-cave-echoes.mp3 | cut -f1)"
-          [ "$refs" -ge 21 ] || { echo "expected at least 21 asset refs, found $refs"; exit 1; }
+          [ "$refs" -ge 22 ] || { echo "expected at least 22 asset refs, found $refs"; exit 1; }
           [ "$missing" -eq 0 ] && [ "$unstamped" -eq 0 ]
           echo "staged $(find _site -type f | wc -l) files"
 
