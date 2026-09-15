@@ -46,8 +46,9 @@
           min: 0, max: 1, step: 0.05, fmt: function (v) { return Math.round(v * 100) + '%'; } },
         { key: 'ambienceVolume', label: 'Cave Ambience', type: 'range', def: 0.55,
           min: 0, max: 1, step: 0.05, fmt: function (v) { return Math.round(v * 100) + '%'; } },
-        { key: 'musicVolume', label: 'Music Drones', type: 'range', def: 0.45,
-          min: 0, max: 1, step: 0.05, fmt: function (v) { return Math.round(v * 100) + '%'; } },
+        { key: 'musicVolume', label: 'Music', type: 'range', def: 0.4,
+          min: 0, max: 1, step: 0.05, fmt: function (v) { return Math.round(v * 100) + '%'; },
+          hint: 'The scored loop, mixed to sit behind the rifle and the specimens.' },
         { key: 'keyClicks', label: 'Keystroke Clicks', type: 'toggle', def: true }
       ]
     },

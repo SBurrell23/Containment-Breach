@@ -11,8 +11,14 @@
   var noiseBuf = null;
   var started = false;
   var ambienceNodes = null;
-  var musicState = null;
+  var musicState = null;      // synthesised drone (fallback / no-file mode)
+  var trackState = null;      // the scored loop
   var enabled = true;
+
+  var TRACK_URL = 'audio/deep-cave-echoes.mp3';
+  // The track is a bed, not a feature. This sits under the player's own music
+  // slider so even at 100% it stays behind the rifle and the specimens.
+  var TRACK_GAIN = 0.34;
 
   function S() { return CT.Settings; }
 
@@ -49,12 +55,20 @@
   }
 
   function applyVolumes() {
-    if (!ctx) return;
     var s = S();
-    master.gain.setTargetAtTime(s ? s.getNum('masterVolume') : 0.8, ctx.currentTime, 0.02);
+    var mv = s ? s.getNum('musicVolume') : 0.4;
+    var mas = s ? s.getNum('masterVolume') : 0.8;
+
+    // An element that could not be routed into the graph never passes through
+    // the master gain, so fold master in by hand.
+    if (trackState && !trackState.routed) {
+      try { trackState.el.volume = Math.max(0, Math.min(1, mas * mv * TRACK_GAIN)); } catch (e) {}
+    }
+    if (!ctx) return;
+    master.gain.setTargetAtTime(mas, ctx.currentTime, 0.02);
     busSfx.gain.setTargetAtTime(s ? s.getNum('sfxVolume') : 0.9, ctx.currentTime, 0.02);
     busAmb.gain.setTargetAtTime(s ? s.getNum('ambienceVolume') : 0.55, ctx.currentTime, 0.05);
-    busMusic.gain.setTargetAtTime(s ? s.getNum('musicVolume') : 0.45, ctx.currentTime, 0.05);
+    busMusic.gain.setTargetAtTime(mv, ctx.currentTime, 0.05);
   }
 
   /* ---- primitive voices -------------------------------------------------- */
@@ -113,15 +127,18 @@
   var Audio = {
     init: function () {
       ensure();
-      if (!ctx) return;
-      if (ctx.state === 'suspended') ctx.resume();
+      if (ctx && ctx.state === 'suspended') ctx.resume();
       started = true;
       applyVolumes();
+      Audio._nudgeTrack();
     },
 
     get ready() { return !!ctx && started; },
 
-    resume: function () { if (ctx && ctx.state === 'suspended') ctx.resume(); },
+    resume: function () {
+      if (ctx && ctx.state === 'suspended') ctx.resume();
+      Audio._nudgeTrack();
+    },
 
     refreshVolumes: applyVolumes,
 
@@ -286,6 +303,15 @@
       }
     },
 
+    /* Your partner landed the word you were half-way through. Deliberately not
+     * the error buzz — you did nothing wrong — just a soft descending blip so
+     * the letters vanishing off your word has an audible cause. */
+    wordTaken: function () {
+      if (!ctx || !enabled) return;
+      tone(busSfx, 'sine', 760, 430, 0.09, 0.07);
+      tone(busSfx, 'sine', 520, 300, 0.11, 0.05, 0.04);
+    },
+
     uiClick: function () {
       if (!ctx || !enabled) return;
       tone(busSfx, 'square', 880, 1180, 0.05, 0.10);
@@ -368,10 +394,86 @@
     },
 
     /* ---- music ------------------------------------------------------------
-     * A two-oscillator drone whose detune, filter and a pulsing sub follow the
-     * run's intensity. It never resolves; it just gets more wrong. */
+     * There are two music sources. The scored track is the bed; the synthesised
+     * drone below is the fallback for when the file cannot be played, and is
+     * skipped entirely once the track is running so the two do not fight.
+     *
+     * Routing the <audio> element through WebAudio buys the intensity filter,
+     * but createMediaElementSource on a file:// page yields silence in Chrome
+     * (the element's origin is opaque), so on that protocol the element is left
+     * unrouted and driven by its own .volume instead. */
+
+    startTrack: function () {
+      if (!TRACK_URL || trackState) return false;
+      var el = new global.Audio();
+      el.src = TRACK_URL;
+      el.loop = true;
+      el.preload = 'auto';
+      el.crossOrigin = 'anonymous';
+
+      trackState = { el: el, routed: false, gain: null, filter: null, failed: false, intensity: 0 };
+
+      el.addEventListener('error', function () {
+        trackState.failed = true;
+        // Nothing scored is playing, so bring the synthesised drone up instead.
+        if (!musicState) Audio.startDrone();
+      });
+
+      if (ctx && global.location.protocol !== 'file:') {
+        try {
+          var src = ctx.createMediaElementSource(el);
+          var flt = ctx.createBiquadFilter();
+          flt.type = 'lowpass';
+          flt.frequency.value = 2400;
+          flt.Q.value = 0.7;
+          var g = ctx.createGain();
+          g.gain.value = TRACK_GAIN;
+          src.connect(flt); flt.connect(g); g.connect(busMusic);
+          trackState.routed = true;
+          trackState.gain = g;
+          trackState.filter = flt;
+        } catch (e) {
+          trackState.routed = false;
+        }
+      }
+
+      if (!trackState.routed) applyVolumes();   // drive el.volume directly
+      var p = el.play();
+      if (p && p.catch) {
+        p.catch(function () {
+          // Autoplay blocked — retry on the next user gesture via resume().
+        });
+      }
+      return true;
+    },
+
+    stopTrack: function () {
+      if (!trackState) return;
+      try { trackState.el.pause(); } catch (e) {}
+      try { trackState.el.src = ''; } catch (e) {}
+      trackState = null;
+    },
+
+    /* Called by init/resume: browsers refuse play() until a user gesture. */
+    _nudgeTrack: function () {
+      if (!trackState || trackState.failed) return;
+      if (trackState.el.paused) {
+        var p = trackState.el.play();
+        if (p && p.catch) p.catch(function () {});
+      }
+    },
 
     startMusic: function () {
+      // Idempotent. The track deliberately keeps playing under the game-over
+      // screen, so a second run starts with one already live — without this
+      // guard startTrack() would decline and the synthesised drone would come
+      // up *on top of* the track that never stopped.
+      if (trackState && !trackState.failed) { Audio._nudgeTrack(); return; }
+      if (Audio.startTrack()) return;      // scored track is the bed
+      Audio.startDrone();
+    },
+
+    startDrone: function () {
       if (!ctx || musicState) return;
       var out = ctx.createGain(); out.gain.value = 0.0001; out.connect(busMusic);
       out.gain.exponentialRampToValueAtTime(0.35, ctx.currentTime + 4);
@@ -403,8 +505,17 @@
 
     /* 0..1+ — raise as the run gets deeper. */
     setMusicIntensity: function (v) {
-      if (!musicState || !ctx) return;
       v = Math.max(0, Math.min(1.4, v));
+
+      // The scored track cannot change key, but it can open up: muffled and
+      // distant in the shallows, full-band by the time things are hopeless.
+      if (trackState && trackState.routed && ctx) {
+        trackState.intensity = v;
+        trackState.filter.frequency.setTargetAtTime(1500 + v * 12000, ctx.currentTime, 2.0);
+        trackState.gain.gain.setTargetAtTime(TRACK_GAIN * (0.82 + v * 0.18), ctx.currentTime, 2.0);
+      }
+
+      if (!musicState || !ctx) return;
       musicState.intensity = v;
       var t = ctx.currentTime;
       musicState.flt.frequency.setTargetAtTime(380 + v * 1500, t, 1.5);
@@ -423,6 +534,7 @@
     },
 
     stopMusic: function () {
+      Audio.stopTrack();
       if (!musicState) return;
       try {
         musicState.out.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.2);
@@ -438,6 +550,28 @@
     stopAll: function () {
       Audio.stopAmbience();
       Audio.stopMusic();
+    },
+
+    /* Diagnostics for the music track. The element is deliberately detached
+     * from the DOM, so there is no other way to see its state. */
+    trackInfo: function () {
+      if (!trackState) return { present: false, drone: !!musicState };
+      var el = trackState.el;
+      return {
+        present: true,
+        routed: trackState.routed,
+        failed: trackState.failed,
+        paused: el.paused,
+        loop: el.loop,
+        currentTime: +el.currentTime.toFixed(2),
+        duration: isNaN(el.duration) ? null : +el.duration.toFixed(1),
+        readyState: el.readyState,
+        elementVolume: +el.volume.toFixed(3),
+        graphGain: trackState.gain ? +trackState.gain.gain.value.toFixed(3) : null,
+        filterHz: trackState.filter ? Math.round(trackState.filter.frequency.value) : null,
+        error: el.error ? el.error.code : null,
+        drone: !!musicState
+      };
     }
   };
 

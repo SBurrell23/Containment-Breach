@@ -58,7 +58,8 @@
       onBadKey: function () { CT.Audio.keyBad(); self.stage.addShake(0.03); },
       onMiss: function () { CT.Audio.keyBad(); },
       onAcquire: function (m) { self.sendClaim(m, false); },
-      onRelease: function (m) { self.sendClaim(m, true); }
+      onRelease: function (m) { self.sendClaim(m, true); },
+      onWordTaken: function (m) { CT.Audio.wordTaken(); self.sendClaim(m, false); }
     });
 
     this._wireNet();
@@ -105,6 +106,7 @@
     this.hud.buildPlayers(this.players, this.mySlot);
     this.hud.show(true);
     this.hud.setScore(0);
+    this.effects.setCoop(count > 1, this.mySlot);
     this.effects.setWeaponVisible(true);
 
     CT.Audio.init();
@@ -295,16 +297,15 @@
     var pan = this.panFor(m.group.position);
     var color = slot === 1 ? 0x36e0ff : 0xffe9b0;
 
-    var from = new THREE.Vector3();
-    if (slot === this.mySlot) {
-      this.effects.muzzleWorld(from);
-      this.effects.muzzleFlash(killed ? 1.5 : 1);
-      this.stage.fireFeedback(killed ? 1.4 : 1);
-    } else {
-      // Partner's muzzle: beside the station, offset to their side.
-      from.set(slot === 1 ? 1.5 : -1.5, 1.25, -0.6);
-      this.stage.rigRoot.localToWorld(from);
-    }
+    // Every shot leaves its own player's rifle, so in co-op the partner's barrel
+    // visibly bucks and flashes when they fire — otherwise the only sign anyone
+    // else is in the cave is health draining off a specimen you were not
+    // looking at. Their shot shakes the camera a little, but nowhere near as
+    // much as your own: the recoil is theirs, not yours.
+    var from = this.effects.muzzleWorld(new THREE.Vector3(), slot);
+    this.effects.muzzleFlash(killed ? 1.5 : 1, slot);
+    if (slot === this.mySlot) this.stage.fireFeedback(killed ? 1.4 : 1);
+    else this.stage.addShake(0.05);
     this.effects.tracer(from, hitPos, color);
     this.effects.impact(hitPos, m.gooColor);
 
@@ -685,8 +686,12 @@
         key: 'm' + m.uid,
         name: m.name,
         word: w,
-        typed: isMine && prog ? prog.typed : (m.claimedBy >= 0 && m.claimedBy !== this.mySlot ? m._remoteTyped || '' : ''),
-        typedBySlot: isMine ? this.mySlot : m.claimedBy,
+        typed: isMine && prog ? prog.typed : '',
+        typedBySlot: isMine ? this.mySlot : -1,
+        // The partner's progress on the same word, shown as a second bar rather
+        // than as highlighted letters — two prefixes coloured on one word is
+        // unreadable, and only your own matters for what to press next.
+        other: m.otherClaim(this.mySlot),
         error: isMine && prog ? prog.error : false,
         hpFrac: m.hpFrac(),
         boss: m.boss,
@@ -747,6 +752,8 @@
         hp: this.players.map(function (p) { return Math.round(p.hp * 10) / 10; }),
         down: this.players.map(function (p) { return p.down ? 1 : 0; }),
         bleed: this.players.map(function (p) { return Math.round(p.bleed * 10) / 10; }),
+        kills: this.players.map(function (p) { return p.kills; }),
+        shots: this.players.map(function (p) { return p.words; }),
         score: Math.round(this.score)
       });
     }
@@ -807,7 +814,8 @@
       if (msg.wi > m.wordIndex) { m.wordIndex = msg.wi; m.hurtT = 1; }
       if (msg.killed && m.alive) {
         m.wordIndex = m.totalWords;
-        m.alive = false; m.dying = true; m.dieT = 0; m.state = 'die'; m.claimedBy = -1;
+        m.alive = false; m.dying = true; m.dieT = 0; m.state = 'die';
+        m.claim[0] = m.claim[1] = null;
       }
       self.typing.validate();
     });
@@ -828,6 +836,9 @@
         if (msg.hp && msg.hp[i] !== undefined) self.players[i].hp = msg.hp[i];
         if (msg.down) self.players[i].down = !!msg.down[i];
         if (msg.bleed) self.players[i].bleed = msg.bleed[i];
+        // The host owns both tallies; our own local count is only a prediction.
+        if (msg.kills && msg.kills[i] !== undefined) self.players[i].kills = msg.kills[i];
+        if (msg.shots && msg.shots[i] !== undefined) self.players[i].words = msg.shots[i];
       }
       if (msg.score !== undefined) self.score = msg.score;
     });
@@ -846,8 +857,8 @@
     net.on('claim', function (msg) {
       var m = self.findMonster(msg.uid);
       if (!m) return;
-      if (msg.rel) { if (m.claimedBy === msg.slot) m.claimedBy = -1; m._remoteTyped = ''; }
-      else { m.claimedBy = msg.slot; m._remoteTyped = msg.typed || ''; }
+      if (msg.rel) m.clearClaim(msg.slot);
+      else m.setClaim(msg.slot, msg.typed || '');
     });
 
     net.on('clear', function (msg) {

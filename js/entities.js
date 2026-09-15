@@ -287,7 +287,10 @@
     this.removed = false;
     this.delay = spec.spawnDelay;
     this.active = false;
-    this.claimedBy = -1;       // player slot currently typing this monster's word
+    // Per-slot typing progress. Both players are allowed to work the same word
+    // at the same time — whoever finishes first fires and the other's progress
+    // is reset — so a single "owner" slot cannot describe the state.
+    this.claim = [null, null];
     this.lastGrowl = -99;
 
     // Hit-flash bookkeeping: remember each material's original emissive.
@@ -323,6 +326,36 @@
 
   Monster.prototype.currentWord = function () {
     return this.wordIndex < this.words.length ? this.words[this.wordIndex] : null;
+  };
+
+  /* ---- claims ------------------------------------------------------------
+   * A claim is "slot N has typed this much of my current word". It is purely
+   * cosmetic bookkeeping for the other player's benefit — nothing about who may
+   * shoot what depends on it, because both players may shoot the same
+   * specimen. Targeting merely *prefers* an unclaimed one, so a co-op pair
+   * naturally splits the room instead of doubling up by accident. */
+
+  Monster.prototype.setClaim = function (slot, typed) {
+    if (slot === 0 || slot === 1) this.claim[slot] = typed || '';
+  };
+
+  Monster.prototype.clearClaim = function (slot) {
+    if (slot === 0 || slot === 1) this.claim[slot] = null;
+  };
+
+  /* Is anyone other than `slot` part-way through this specimen's word? */
+  Monster.prototype.claimedByOther = function (slot) {
+    for (var i = 0; i < this.claim.length; i++) {
+      if (i !== slot && this.claim[i] !== null) return true;
+    }
+    return false;
+  };
+
+  Monster.prototype.otherClaim = function (slot) {
+    for (var i = 0; i < this.claim.length; i++) {
+      if (i !== slot && this.claim[i] !== null) return { slot: i, typed: this.claim[i] };
+    }
+    return null;
   };
 
   Monster.prototype.hpFrac = function () {
@@ -403,7 +436,7 @@
       this.dying = true;
       this.dieT = 0;
       this.state = 'die';
-      this.claimedBy = -1;
+      this.claim[0] = this.claim[1] = null;
       return true;
     }
     this.state = 'hurt';

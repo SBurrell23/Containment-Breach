@@ -28,16 +28,25 @@
     var hp = document.createElement('div'); hp.className = 'mhp';
     var hpi = document.createElement('i'); hp.appendChild(hpi);
     var word = document.createElement('div'); word.className = 'mword';
+    // Partner's progress on the same word. A second coloured prefix on the same
+    // letters would be unreadable, and only your own tells you what to press,
+    // so theirs is a bar instead.
+    var mate = document.createElement('div'); mate.className = 'mmate';
+    var matei = document.createElement('i'); mate.appendChild(matei);
     var stem = document.createElement('div'); stem.className = 'mstem';
-    el.appendChild(name); el.appendChild(hp); el.appendChild(word); el.appendChild(stem);
+    el.appendChild(name); el.appendChild(hp); el.appendChild(word);
+    el.appendChild(mate); el.appendChild(stem);
     this.host.appendChild(el);
     return { el: el, name: name, hp: hp, hpi: hpi, word: word, stem: stem,
-             lastWord: null, lastTyped: -1, lastHp: -1, lastCls: '', lastLift: -1 };
+             mate: mate, matei: matei,
+             lastWord: null, lastTyped: -1, lastHp: -1, lastCls: '', lastLift: -1,
+             lastMate: -2 };
   };
 
   Labels.prototype._release = function (entry) {
     entry.el.style.display = 'none';
     entry.lastWord = null; entry.lastTyped = -1; entry.lastHp = -1; entry.lastCls = '';
+    entry.lastMate = -2;
     this.pool.push(entry);
   };
 
@@ -148,6 +157,23 @@
         if (pct !== entry.lastHp) { entry.hpi.style.width = (pct * 100).toFixed(1) + '%'; entry.lastHp = pct; }
       }
 
+      // partner's share of the same word
+      var mateFrac = -1, mateSlot = 0;
+      if (it.other && it.word && it.other.typed) {
+        mateFrac = Math.min(1, it.other.typed.length / it.word.length);
+        mateSlot = it.other.slot;
+      }
+      if (mateFrac !== entry.lastMate) {
+        entry.lastMate = mateFrac;
+        if (mateFrac < 0) {
+          entry.mate.style.display = 'none';
+        } else {
+          entry.mate.style.display = '';
+          entry.mate.className = 'mmate' + (mateSlot === 1 ? ' p2' : '');
+          entry.matei.style.width = (mateFrac * 100).toFixed(1) + '%';
+        }
+      }
+
       var typedLen = it.typed ? it.typed.length : 0;
       if (it.word !== entry.lastWord || typedLen !== entry.lastTyped || it.error !== entry.lastError) {
         entry.word.innerHTML = renderWord(it.word, typedLen, it.error);
@@ -219,17 +245,20 @@
       var p = players[i];
       var card = document.createElement('div');
       card.className = 'pcard' + (i === 1 ? ' p2' : '') + (i === mySlot ? ' me' : '');
+      var coop = players.length > 1;
       card.innerHTML =
         '<div class="prow"><span class="pname"></span><span class="phpnum"></span></div>' +
         '<div class="phpbar"><i></i></div>' +
-        '<div class="pstat"></div>';
+        '<div class="pstat"></div>' +
+        (coop ? '<div class="ptally"></div>' : '');
       this.players.appendChild(card);
       this.cards.push({
         el: card,
         name: card.querySelector('.pname'),
         hpnum: card.querySelector('.phpnum'),
         bar: card.querySelector('.phpbar i'),
-        stat: card.querySelector('.pstat')
+        stat: card.querySelector('.pstat'),
+        tally: card.querySelector('.ptally')
       });
     }
   };
@@ -248,6 +277,13 @@
       bits.push(Math.round(p.accuracy * 100) + '% ACC');
       if (p.down) bits.unshift('DOWN');
       c.stat.textContent = bits.join('   ');
+
+      // Co-op keeps a running tally per player: who is actually carrying.
+      if (c.tally) {
+        var k = p.kills || 0, sh = p.words || 0;
+        c.tally.textContent = k + (k === 1 ? ' KILL   ' : ' KILLS   ') +
+                              sh + (sh === 1 ? ' SHOT' : ' SHOTS');
+      }
     }
   };
 

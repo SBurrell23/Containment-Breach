@@ -11,9 +11,10 @@ style. Tougher specimens take more words; every tenth chamber holds a boss. It g
 on forever, the words get longer and then nastier, and eventually something reaches
 you and starts taking your health bar apart. The game is how deep you get.
 
-Vanilla JavaScript, three.js, WebRTC. **Every asset is generated in code** — all the
-geometry, all the textures, and all the sound. There is not a single image, model or
-audio file in the project.
+Vanilla JavaScript, three.js, WebRTC. **Every visual is generated in code** — all the
+geometry and all the textures. There is not a single image or model file in the
+project, and every sound effect is synthesised from oscillators and noise at runtime.
+The only asset on disk is the music loop.
 
 ---
 
@@ -81,10 +82,24 @@ looks less deliberate.
 
 ### Two players
 
-Both players share one cave and one set of specimens. A specimen someone else is
-already typing turns their colour, and your keystrokes will find a different target
-first, so you naturally split the room instead of fighting over it. Encounters are
-scaled up for two, so a co-op run is not easier — it is denser.
+Both players share one cave and one set of specimens. Encounters are scaled up for
+two, so a co-op run is not easier — it is denser.
+
+**Both rifles are on screen**, player one's on the left and player two's on the right,
+each with its charge cell in that player's colour. When your partner lands a word
+their barrel bucks and flashes — without it, the only sign anyone else is down there
+with you is health draining off a specimen you were not looking at.
+
+Targeting *prefers* a specimen nobody else is part-way through, so you naturally split
+the room rather than doubling up by accident. It is only a preference, though: **you
+can both work the same specimen at once.** Your partner's progress through the word
+shows as a second bar beneath it in their colour. Whoever lands the word first fires,
+the specimen moves to its next word, and the other player's half-typed prefix is
+cleared — each of you has to type a word in its entirety, so no credit carries over
+from the word somebody else finished.
+
+Your player card carries a running **kill and shot count** alongside WPM and accuracy,
+so it is obvious who is actually carrying.
 
 If a player is dropped to zero they go **down** with a 26-second bleed-out timer, and
 a revive word appears over them. Type it fast. If it runs out, the run ends for both
@@ -118,8 +133,12 @@ message self-corrects on the next one instead of leaving the two sides drifting.
 frame rate cap (30/60/120/144/unlimited), dynamic shadows, additive glow sprites,
 particle density, fog density, field of view, and light flicker.
 
-**Audio** — master, weapon/monster SFX, cave ambience, music drones, and keystroke
-clicks, all independent.
+**Audio** — master, weapon/monster SFX, cave ambience, music, and keystroke clicks,
+all independent. The music is *Deep Cave Echoes* by steezyb, looped and mixed
+deliberately low so it sits behind the rifle and the specimens; it is routed through
+the same WebAudio graph as everything else, so it opens up from muffled to full-band
+as the run gets deeper. If the file cannot be played the game falls back to the
+synthesised drone it shipped with.
 
 **Gameplay & accessibility** — screen shake amount, damage vignette, live WPM
 readout, larger word text, high-contrast word plates, and a strict mode where a
@@ -184,7 +203,8 @@ css/style.css           HUD, floating labels, menus
 js/rng.js               seeded RNG + value noise — all procedural generation funnels here
 js/words.js             word bank and difficulty-scaled word generation
 js/settings.js          settings store + the self-rendering options menu
-js/audio.js             every sound in the game, synthesised from oscillators and noise
+audio/                  the music loop (the only asset file in the project)
+js/audio.js             every sound effect, synthesised from oscillators and noise
 js/difficulty.js        the curve, encounter planning, and a headless pacing simulator
 js/scene.js             renderer, camera rig, lighting, quality plumbing
 js/cave.js              the procedural cave route + ruined-lab dressing, streamed in chunks

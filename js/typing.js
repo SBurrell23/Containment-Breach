@@ -22,6 +22,7 @@
     this.error = false;
     // Seeded so release() can clear a claim even if it runs before any keypress.
     this.slot = 0;
+    this.targetWordIndex = -1;
     this.stats = {
       keystrokes: 0,
       correct: 0,
@@ -50,20 +51,51 @@
   /* Drop the lock (monster died, encounter ended, player pressed Escape). */
   Typing.prototype.release = function () {
     if (this.target) {
-      if (this.target.claimedBy === this.slot) this.target.claimedBy = -1;
+      this.target.clearClaim(this.slot);
       if (this.hooks.onRelease) this.hooks.onRelease(this.target);
     }
     this.target = null;
     this.typed = '';
     this.error = false;
+    this.targetWordIndex = -1;
   };
 
-  /* Called by the game when the current target is no longer valid. */
+  /* Called by the game every frame.
+   *
+   * As well as dropping a dead target, this is where a word being finished out
+   * from under you is caught. In co-op both players can be typing the same
+   * specimen's word; when one of them lands it the specimen advances to its
+   * next word, and the other player's half-typed prefix now belongs to a word
+   * that no longer exists. Leaving it in place is what produced the bug where
+   * the fresh word appeared with letters already highlighted — and worse, the
+   * player's next keystroke was matched against the wrong position.
+   *
+   * Detecting it here rather than at each shot site means it holds for every
+   * path that can move a word index: a local shot, a remote shot relayed by the
+   * host, and the host's absolute reconciliation. */
   Typing.prototype.validate = function () {
-    if (this.target && (!this.target.alive || this.target.removed || !this.target.active)) {
+    var t = this.target;
+    if (!t) return;
+
+    if (!t.alive || t.removed || !t.active) {
+      t.clearClaim(this.slot);
       this.target = null;
       this.typed = '';
       this.error = false;
+      this.targetWordIndex = -1;
+      return;
+    }
+
+    if (t.wordIndex !== this.targetWordIndex) {
+      // Somebody else finished this word. Start the new one clean — each player
+      // has to type a word in its entirety, so no credit carries over.
+      this.targetWordIndex = t.wordIndex;
+      if (this.typed.length) {
+        this.typed = '';
+        this.error = false;
+        t.setClaim(this.slot, '');
+        if (this.hooks.onWordTaken) this.hooks.onWordTaken(t);
+      }
     }
   };
 
@@ -87,7 +119,9 @@
       var w = m.currentWord();
       if (!w) continue;
       if (w.charAt(0).toLowerCase() !== ch.toLowerCase()) continue;
-      var claimedPenalty = (m.claimedBy >= 0 && m.claimedBy !== slot) ? 1000 : 0;
+      // A soft preference, not a lock: if this is the only specimen offering
+      // that letter the player still gets it, and both may shoot it at once.
+      var claimedPenalty = m.claimedByOther(slot) ? 1000 : 0;
       var aim = m.aimDist === undefined ? 9 : m.aimDist;
       // Distance is a whisper of a tiebreak between two equally-aimed-at
       // specimens, so the closer threat wins that coin flip.
@@ -125,7 +159,8 @@
         return 'miss';
       }
       this.target = m;
-      m.claimedBy = slot;
+      this.targetWordIndex = m.wordIndex;
+      m.setClaim(slot, ch);
       this.typed = ch;
       this.stats.correct++;
       this.stats.streak++;
@@ -140,6 +175,7 @@
     var expected = word.charAt(this.typed.length);
     if (ch === expected) {
       this.typed += ch;
+      this.target.setClaim(slot, this.typed);
       this.stats.correct++;
       this.stats.streak++;
       if (this.stats.streak > this.stats.bestStreak) this.stats.bestStreak = this.stats.streak;
@@ -169,8 +205,9 @@
       // keep emptying the magazine into the same specimen — the next keystroke
       // re-targets from scratch, so the player can alternate between two
       // specimens word by word. Only an *unfinished* word holds you.
-      if (m.claimedBy === this.slot) m.claimedBy = -1;
+      m.clearClaim(this.slot);
       this.target = null;
+      this.targetWordIndex = -1;
       if (this.hooks.onRelease) this.hooks.onRelease(m);
       return 'word';
     }
@@ -183,6 +220,7 @@
     if (this.typed.length > 0) {
       this.typed = this.typed.slice(0, -1);
       if (this.typed.length === 0) { this.release(); return 'released'; }
+      this.target.setClaim(this.slot, this.typed);
       return 'back';
     }
     this.release();

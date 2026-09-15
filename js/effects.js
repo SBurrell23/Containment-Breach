@@ -159,29 +159,30 @@
     r.mesh.scale.setScalar(0.1);
   };
 
-  /* ---- muzzle flash ------------------------------------------------------ */
+  /* ---- weapons and muzzle flash ------------------------------------------
+   * In co-op both rifles are on screen: yours on your side of the cabinet and
+   * your partner's on theirs, player one left and player two right. Seeing the
+   * other barrel buck and flash is the only direct feedback that someone else
+   * is in the cave with you — everything else they do reads as damage numbers
+   * on a specimen you were not looking at.
+   *
+   * Both are camera-attached viewmodels rather than world objects, because at
+   * any believable world position a partner standing beside you is either
+   * off-screen or in the way of the thing you are trying to read. */
 
-  Effects.prototype._buildFlash = function () {
-    var geo = new THREE.PlaneGeometry(1.5, 1.5);
-    this.flashGeo = geo;
-    var mat = new THREE.MeshBasicMaterial({
-      color: 0xffd48a, transparent: true, opacity: 0,
-      blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false
-    });
-    this.flashMat = mat;
-    this.flash = new THREE.Mesh(geo, mat);
-    this.flash.renderOrder = 10;
-    this.flash.userData.noShadow = true;
-    this.flashLife = 0;
+  var WEAPON_HOME = { x: 0.30, y: -0.30, z: -1.15 };
 
-    // The dictation rifle. A viewmodel sits centimetres from the near plane, so
-    // everything here is deliberately small and pushed well forward — anything
-    // chunky at this range swallows the bottom third of the screen.
-    this.weapon = new THREE.Group();
+  /* Builds one rifle. `side` is +1 for the right of the screen, -1 for the
+   * left; the model is near-symmetric so mirroring the pose is enough, and it
+   * avoids a negative scale (which would invert every normal). */
+  Effects.prototype._buildRifle = function (side, cellColor) {
     var dis = [];
+    var group = new THREE.Group();
     var steel = new THREE.MeshStandardMaterial({ color: 0x23282d, roughness: 0.42, metalness: 0.85 });
     var polymer = new THREE.MeshStandardMaterial({ color: 0x14171a, roughness: 0.82, metalness: 0.1 });
-    var cellMat = new THREE.MeshStandardMaterial({ color: 0x0a0d0a, emissive: 0x7dff4a, emissiveIntensity: 0.9 });
+    var cellMat = new THREE.MeshStandardMaterial({
+      color: 0x0a0d0a, emissive: cellColor, emissiveIntensity: 0.9
+    });
     dis.push(steel, polymer, cellMat);
 
     function part(geo, mat, x, y, z, rx, ry, rz) {
@@ -193,41 +194,91 @@
       return m;
     }
 
-    var W = this.weapon;
-    W.add(part(new THREE.BoxGeometry(0.115, 0.13, 0.5), polymer, 0, 0, 0));                        // receiver
-    W.add(part(new THREE.BoxGeometry(0.075, 0.035, 0.46), steel, 0, 0.082, -0.02));                // top rail
-    W.add(part(new THREE.CylinderGeometry(0.031, 0.036, 0.52, 8), steel, 0, -0.008, -0.5, Math.PI / 2)); // barrel
-    W.add(part(new THREE.CylinderGeometry(0.05, 0.047, 0.085, 8), steel, 0, -0.008, -0.78, Math.PI / 2)); // brake
-    W.add(part(new THREE.BoxGeometry(0.065, 0.17, 0.075), polymer, 0, -0.135, 0.17, 0.26));        // grip
-    W.add(part(new THREE.CylinderGeometry(0.042, 0.042, 0.22, 8), steel, 0, -0.12, -0.02, 0.2));   // reagent canister
-    // The charge cell is the only lit element; it stays a thin sliver on the
-    // flank rather than a glowing slab across the top.
-    var cell = part(new THREE.BoxGeometry(0.018, 0.045, 0.21), cellMat, -0.062, 0.012, -0.05);
-    W.add(cell);
-    W.add(part(new THREE.BoxGeometry(0.018, 0.045, 0.21), cellMat, 0.062, 0.012, -0.05));
+    group.add(part(new THREE.BoxGeometry(0.115, 0.13, 0.5), polymer, 0, 0, 0));                        // receiver
+    group.add(part(new THREE.BoxGeometry(0.075, 0.035, 0.46), steel, 0, 0.082, -0.02));                // top rail
+    group.add(part(new THREE.CylinderGeometry(0.031, 0.036, 0.52, 8), steel, 0, -0.008, -0.5, Math.PI / 2)); // barrel
+    group.add(part(new THREE.CylinderGeometry(0.05, 0.047, 0.085, 8), steel, 0, -0.008, -0.78, Math.PI / 2)); // brake
+    group.add(part(new THREE.BoxGeometry(0.065, 0.17, 0.075), polymer, 0, -0.135, 0.17, 0.26));        // grip
+    group.add(part(new THREE.CylinderGeometry(0.042, 0.042, 0.22, 8), steel, 0, -0.12, -0.02, 0.2));   // reagent canister
+    // The charge cell is the only lit element, and it carries the player colour
+    // so the two rifles are told apart at a glance.
+    group.add(part(new THREE.BoxGeometry(0.018, 0.045, 0.21), cellMat, -0.062, 0.012, -0.05));
+    group.add(part(new THREE.BoxGeometry(0.018, 0.045, 0.21), cellMat, 0.062, 0.012, -0.05));
 
     // Muzzle anchor rides on the weapon, so tracers and the flash stay attached
     // to the brake however the viewmodel is repositioned for the window shape.
-    this.muzzleAnchor = new THREE.Object3D();
-    this.muzzleAnchor.position.set(0, -0.008, -0.86);
-    W.add(this.muzzleAnchor);
-    this.flash.position.copy(this.muzzleAnchor.position);
-    this.flash.scale.setScalar(0.55);
-    W.add(this.flash);
+    var anchor = new THREE.Object3D();
+    anchor.position.set(0, -0.008, -0.86);
+    group.add(anchor);
 
-    this.weaponVent = cellMat;
-    this.weapon.position.set(0.30, -0.30, -1.15);
-    this.weapon.rotation.set(0.03, -0.055, 0.02);
-    this.stage.camera.add(this.weapon);
-    this._weaponKick = 0;
-    this._weaponHome = this.weapon.position.clone();
-    this._weaponDis = dis;
+    var flashMat = new THREE.MeshBasicMaterial({
+      color: 0xffd48a, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false
+    });
+    var flash = new THREE.Mesh(this.flashGeo, flashMat);
+    flash.position.copy(anchor.position);
+    flash.scale.setScalar(0.55);
+    flash.renderOrder = 10;
+    flash.userData.noShadow = true;
+    group.add(flash);
+    dis.push(flashMat);
+
+    group.position.set(WEAPON_HOME.x * side, WEAPON_HOME.y, WEAPON_HOME.z);
+    group.rotation.set(0.03, -0.055 * side, 0.02 * side);
+    this.stage.camera.add(group);
+
+    return {
+      side: side, group: group, anchor: anchor,
+      flash: flash, flashMat: flashMat, flashLife: 0,
+      cell: cellMat, kick: 0, dis: dis,
+      aspectX: WEAPON_HOME.x * side, aspectY: WEAPON_HOME.y
+    };
+  };
+
+  Effects.prototype._buildFlash = function () {
+    // One plane geometry, shared by every muzzle flash.
+    this.flashGeo = new THREE.PlaneGeometry(1.5, 1.5);
+
+    // Slot 0 is player one (left of screen), slot 1 is player two (right).
+    // Solo play uses slot 0's rifle but keeps it on the right, where a single
+    // player expects it — setCoop() does that repositioning.
+    this.rifles = [
+      this._buildRifle(-1, 0x7dff4a),
+      this._buildRifle(1, 0x36e0ff)
+    ];
+    this.mySlot = 0;
+    this.coop = false;
+
     this._lastAspect = -1;
     this._lastFov = -1;
+    this.setCoop(false, 0);
+  };
+
+  /* Solo: one rifle, bottom right. Co-op: both, P1 left and P2 right. */
+  Effects.prototype.setCoop = function (coop, mySlot) {
+    this.coop = !!coop;
+    this.mySlot = mySlot || 0;
+    for (var i = 0; i < this.rifles.length; i++) {
+      var r = this.rifles[i];
+      if (this.coop) {
+        r.group.visible = true;
+        r.side = i === 0 ? -1 : 1;
+      } else {
+        // Only the local player's rifle exists, and it sits on the right.
+        r.group.visible = (i === this.mySlot);
+        r.side = 1;
+      }
+      r.group.rotation.set(0.03, -0.055 * r.side, 0.02 * r.side);
+    }
+    this._lastAspect = -1;      // force a re-layout for the new sides
     this._layoutWeapon();
   };
 
-  /* Keep the viewmodel pinned to the lower-right corner at any window shape.
+  Effects.prototype.rifleFor = function (slot) {
+    return this.rifles[slot === 1 ? 1 : 0];
+  };
+
+  /* Keep each viewmodel pinned to its corner at any window shape.
    * three.js FOV is vertical, so a tall or narrow window shrinks the horizontal
    * extent while leaving the weapon's world size alone — at portrait aspect a
    * fixed offset drags the rifle into the middle of the screen. */
@@ -239,9 +290,8 @@
     this._lastAspect = aspect;
     this._lastFov = cam.fov;
 
-    var home = this._weaponHome;
     // Half the visible width at the weapon's depth, in world units.
-    var halfW = Math.tan(cam.fov * Math.PI / 360) * aspect * Math.abs(home.z);
+    var halfW = Math.tan(cam.fov * Math.PI / 360) * aspect * Math.abs(WEAPON_HOME.z);
 
     // 0 at a normal widescreen window, 1 at an extremely tall/narrow one. As the
     // window narrows the rifle has to travel further out toward the corner and
@@ -249,22 +299,32 @@
     // screen and hides the specimens behind it.
     var t = CT.clamp((1.78 - aspect) / 1.18, 0, 1);
     var frac = CT.lerp(0.217, 0.85, t);        // 0.217 reproduces the 16:9 pose
-    this._aspectX = frac * halfW;
-    this._aspectY = home.y - t * 0.09;
-    this.weapon.scale.setScalar(CT.lerp(1, 0.6, t));
+    var scale = CT.lerp(1, 0.6, t);
+    // Two rifles on one screen need to sit further out and smaller than one.
+    if (this.coop) { frac *= 1.18; scale *= 0.88; }
+
+    for (var i = 0; i < this.rifles.length; i++) {
+      var r = this.rifles[i];
+      r.aspectX = frac * halfW * r.side;
+      r.aspectY = WEAPON_HOME.y - t * 0.09;
+      r.group.scale.setScalar(scale);
+    }
   };
 
-  Effects.prototype.muzzleWorld = function (out) {
+  /* Where a given player's shots visually originate. */
+  Effects.prototype.muzzleWorld = function (out, slot) {
     out = out || new THREE.Vector3();
-    return this.muzzleAnchor.getWorldPosition(out);
+    return this.rifleFor(slot === undefined ? this.mySlot : slot).anchor.getWorldPosition(out);
   };
 
-  Effects.prototype.muzzleFlash = function (power) {
-    this.flashLife = 0.07;
-    this.flashMat.opacity = S().get('glow') ? 1.0 : 0.55;
-    this.flash.scale.setScalar(0.42 + (power || 1) * 0.3);
-    this.flash.rotation.z = Math.random() * Math.PI * 2;
-    this._weaponKick = Math.min(1.2, this._weaponKick + 0.7 * (power || 1));
+  Effects.prototype.muzzleFlash = function (power, slot) {
+    var r = this.rifleFor(slot === undefined ? this.mySlot : slot);
+    if (!r.group.visible) return;
+    r.flashLife = 0.07;
+    r.flashMat.opacity = S().get('glow') ? 1.0 : 0.55;
+    r.flash.scale.setScalar(0.42 + (power || 1) * 0.3);
+    r.flash.rotation.z = Math.random() * Math.PI * 2;
+    r.kick = Math.min(1.2, r.kick + 0.7 * (power || 1));
   };
 
   /* ---- frame ------------------------------------------------------------- */
@@ -319,29 +379,36 @@
       if (rg.life <= 0) rg.mesh.visible = false;
     }
 
-    // flash + weapon
-    if (this.flashLife > 0) {
-      this.flashLife -= dt;
-      this.flashMat.opacity = Math.max(0, this.flashLife / 0.07);
-      if (this.flashLife <= 0) this.flashMat.opacity = 0;
-    }
+    // flash + weapons
     this._layoutWeapon();
-    this._weaponKick = Math.max(0, this._weaponKick - dt * 6.5);
-    var k2 = this._weaponKick * this._weaponKick;
-    var home = this._weaponHome;
-    this.weapon.position.set(
-      this._aspectX,
-      this._aspectY - k2 * 0.014 + Math.sin(time * 1.7) * 0.005,
-      home.z + k2 * 0.10
-    );
-    this.weapon.rotation.x = 0.03 + k2 * 0.26;
-    this.weapon.rotation.z = 0.02 + Math.sin(time * 1.3) * 0.01;
-    this.weaponVent.emissiveIntensity = 0.7 + Math.sin(time * 6) * 0.22 + k2 * 2.2;
+    for (var wi = 0; wi < this.rifles.length; wi++) {
+      var r = this.rifles[wi];
+      if (r.flashLife > 0) {
+        r.flashLife -= dt;
+        r.flashMat.opacity = Math.max(0, r.flashLife / 0.07);
+        if (r.flashLife <= 0) r.flashMat.opacity = 0;
+      }
+      if (!r.group.visible) continue;
+      r.kick = Math.max(0, r.kick - dt * 6.5);
+      var k2 = r.kick * r.kick;
+      r.group.position.set(
+        r.aspectX,
+        r.aspectY - k2 * 0.014 + Math.sin(time * 1.7 + wi) * 0.005,
+        WEAPON_HOME.z + k2 * 0.10
+      );
+      r.group.rotation.x = 0.03 + k2 * 0.26;
+      r.group.rotation.z = (0.02 + Math.sin(time * 1.3 + wi) * 0.01) * r.side;
+      r.cell.emissiveIntensity = 0.7 + Math.sin(time * 6 + wi) * 0.22 + k2 * 2.2;
+    }
   };
 
   Effects.prototype.setWeaponVisible = function (v) {
-    this.weapon.visible = v;
-    if (!v) { this.flashMat.opacity = 0; this.flashLife = 0; }
+    for (var i = 0; i < this.rifles.length; i++) {
+      var r = this.rifles[i];
+      var shouldShow = v && (this.coop || i === this.mySlot);
+      r.group.visible = !!shouldShow;
+      if (!shouldShow) { r.flashMat.opacity = 0; r.flashLife = 0; r.kick = 0; }
+    }
   };
 
   Effects.prototype.dispose = function () {
@@ -350,10 +417,12 @@
     for (var i = 0; i < this.tracers.length; i++) this.tracers[i].mat.dispose();
     this.ringGeo.dispose();
     for (var r = 0; r < this.rings.length; r++) this.rings[r].mat.dispose();
-    this.flashGeo.dispose(); this.flashMat.dispose();
-    this.weapon.remove(this.flash);
-    for (var d = 0; d < this._weaponDis.length; d++) this._weaponDis[d].dispose();
-    this.stage.camera.remove(this.weapon);
+    this.flashGeo.dispose();
+    for (var w = 0; w < this.rifles.length; w++) {
+      var rf = this.rifles[w];
+      for (var d = 0; d < rf.dis.length; d++) rf.dis[d].dispose();
+      this.stage.camera.remove(rf.group);
+    }
     this.stage.scene.remove(this.root);
   };
 

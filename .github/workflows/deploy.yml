@@ -29,7 +29,7 @@ jobs:
         run: |
           mkdir -p _site
           cp index.html README.md _site/
-          cp -r css js _site/
+          cp -r css js audio _site/
           # Tell Pages not to run Jekyll, which would otherwise drop files and
           # directories whose names begin with an underscore.
           touch _site/.nojekyll
@@ -52,6 +52,7 @@ jobs:
           set -e
           test -f _site/index.html
           test -f _site/css/style.css
+          test -f _site/audio/deep-cave-echoes.mp3
           for f in rng words settings audio difficulty scene cave effects entities typing ui net game main; do
             test -f "_site/js/$f.js" || { echo "missing js/$f.js"; exit 1; }
           done
@@ -73,6 +74,7 @@ jobs:
             [ -f "_site/$path" ] || { echo "MISSING: $path"; missing=1; }
           done
           echo "checked $refs local asset references"
+          echo "audio: $(du -h _site/audio/deep-cave-echoes.mp3 | cut -f1)"
           [ "$refs" -ge 18 ] || { echo "expected at least 18 asset refs, found $refs"; exit 1; }
           [ "$missing" -eq 0 ] && [ "$unstamped" -eq 0 ]
           echo "staged $(find _site -type f | wc -l) files"

@@ -124,6 +124,20 @@ body.playing { cursor: none; }
 .mlabel.boss .mname { font-size: 11px; color: var(--blood); letter-spacing: 2.4px; }
 .mlabel.boss .mword { font-size: 24px; }
 
+/* The other player's progress through the same word. */
+.mmate {
+  height: 3px; width: 70%; margin: 2px auto 0;
+  background: rgba(0,0,0,0.6);
+  border: 1px solid rgba(125,255,74,0.35);
+}
+.mmate i {
+  display: block; height: 100%; width: 0;
+  background: var(--p1);
+  transition: width 0.08s linear;
+}
+.mmate.p2 { border-color: rgba(54,224,255,0.35); }
+.mmate.p2 i { background: var(--p2); }
+
 /* Stem drawn back down to the specimen when a label has been lifted clear of
    a nearer one. Without it a floating word has no visible owner. */
 .mstem {
@@ -248,6 +262,13 @@ body.contrast .mlabel .mname { color: #cfe4dd; opacity: 1; }
 .pcard.down { opacity: 0.55; border-left-color: var(--blood); }
 .pcard.down .pname { color: var(--blood); }
 .pcard .pstat { font-size: 9px; color: var(--ink-dim); letter-spacing: 1.4px; margin-top: 4px; }
+.pcard .ptally {
+  font-family: var(--font-disp); font-weight: 600;
+  font-size: 10px; letter-spacing: 1.6px; margin-top: 2px;
+  color: var(--p1); font-variant-numeric: tabular-nums;
+}
+.pcard.p2 .ptally { color: var(--p2); }
+.pcard.down .ptally { color: var(--ink-dim); }
 
 #typebar { text-align: center; min-height: 34px; }
 #typebar-word {
