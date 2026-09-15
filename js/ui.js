@@ -1,7 +1,7 @@
-/* Cave Typer — HUD, floating world labels, and screen management. */
+/* Containment Breach — HUD, floating world labels, and screen management. */
 (function (global) {
   'use strict';
-  var CT = (global.CaveTyper = global.CaveTyper || {});
+  var CT = (global.ContainmentBreach = global.ContainmentBreach || {});
   var S = function () { return CT.Settings; };
 
   function $(id) { return document.getElementById(id); }

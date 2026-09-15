@@ -1,4 +1,4 @@
-/* Cave Typer — difficulty curve and encounter planning.
+/* Containment Breach — difficulty curve and encounter planning.
  *
  * Design target: a steady 100 WPM typist should die somewhere around the
  * 15 minute mark. Everything that governs that lives in TUNING below, and
@@ -6,7 +6,7 @@
  * checked without playing for a quarter of an hour. */
 (function (global) {
   'use strict';
-  var CT = (global.CaveTyper = global.CaveTyper || {});
+  var CT = (global.ContainmentBreach = global.ContainmentBreach || {});
 
   var TUNING = {
     // How many words an encounter contains (solo).

@@ -1,11 +1,11 @@
-/* Cave Typer — seeded randomness + value noise.
+/* Containment Breach — seeded randomness + value noise.
  * Everything procedural in the game funnels through here so that a run can be
  * reproduced exactly from a single integer seed (which is also what gets sent
  * over the wire in multiplayer). */
 (function (global) {
   'use strict';
 
-  var CT = (global.CaveTyper = global.CaveTyper || {});
+  var CT = (global.ContainmentBreach = global.ContainmentBreach || {});
 
   /* mulberry32 — small, fast, good enough distribution for visuals + gameplay. */
   function mulberry32(a) {

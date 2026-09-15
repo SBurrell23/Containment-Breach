@@ -1,4 +1,4 @@
-/* Cave Typer — HUD, floating labels, menus.
+/* Containment Breach — HUD, floating labels, menus.
  * Aesthetic: a failing facility terminal. Phosphor green, hazard amber, wet red. */
 
 :root {
@@ -342,13 +342,15 @@ body.is-p2 #typebar-word b { color: var(--p2); }
   font-family: var(--font-disp);
   font-size: 11px; font-weight: 600; letter-spacing: 7px; color: var(--ink-dim);
 }
+/* Stacked, because the title is two long words: CONTAINMENTBREACH set on one
+ * line is seventeen characters of display face and runs off a phone. */
 .logo h1 {
   margin: 8px 0 0; font-family: var(--font-disp);
-  font-size: clamp(44px, 9vw, 78px); line-height: 0.92;
-  letter-spacing: 4px; font-weight: 700; color: var(--ink);
+  font-size: clamp(30px, 6.4vw, 60px); line-height: 0.98;
+  letter-spacing: 3px; font-weight: 700; color: var(--ink);
   text-shadow: 0 0 34px rgba(125,255,74,0.28);
 }
-.logo h1 span { color: var(--acid); }
+.logo h1 span { display: block; color: var(--acid); }
 .logo-rule {
   height: 1px; margin: 16px auto; width: 72%;
   background: linear-gradient(to right, transparent, var(--panel-b) 20%, var(--panel-b) 80%, transparent);
@@ -501,6 +503,14 @@ textarea:focus { border-color: var(--acid); color: var(--ink); }
 
 .direct-step { display: flex; flex-direction: column; gap: 6px; }
 .direct-step label { font-size: 10px; letter-spacing: 1.8px; color: var(--ink-dim); }
+.direct-block { display: flex; flex-direction: column; gap: 6px; }
+/* The two roles do these steps in opposite orders. The host generates an invite
+ * and then pastes a reply; the joiner pastes the invite first and only has a
+ * reply to send afterwards. The boxes are therefore swapped for the joiner,
+ * rather than left in place and labelled "2." above "1.", which is what they
+ * used to be. */
+.direct-step.joining #direct-send { order: 2; }
+.direct-step.joining #direct-recv { order: 1; }
 
 .status { font-size: 11px; line-height: 1.55; color: var(--ink-dim); min-height: 15px; }
 .status.err { color: var(--blood); }

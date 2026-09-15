@@ -2,7 +2,7 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "cave-typer",
+      "name": "containment-breach",
       "runtimeExecutable": "node",
       "runtimeArgs": ["tools/serve.js", "8123"],
       "port": 8123

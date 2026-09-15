@@ -1,4 +1,4 @@
-/* Cave Typer — difficulty-scaled word selection.
+/* Containment Breach — difficulty-scaled word selection.
  *
  * The words themselves live in js/wordbank.js, which is GENERATED and
  * dictionary-verified (see tools/build-wordbank.js). This file only decides
@@ -11,7 +11,7 @@
  */
 (function (global) {
   'use strict';
-  var CT = (global.CaveTyper = global.CaveTyper || {});
+  var CT = (global.ContainmentBreach = global.ContainmentBreach || {});
 
   function bank() { return CT.WordBank; }
 

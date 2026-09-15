@@ -1,12 +1,14 @@
-/* Cave Typer — settings store + self-rendering options menu.
+/* Containment Breach — settings store + self-rendering options menu.
  *
  * The schema below is the single source of truth: it drives the defaults, the
  * persisted shape, and the DOM of the options screen. Add a row here and it
  * appears in the menu. */
 (function (global) {
   'use strict';
-  var CT = (global.CaveTyper = global.CaveTyper || {});
+  var CT = (global.ContainmentBreach = global.ContainmentBreach || {});
 
+  // Keeps the old prefix: see the note in js/records.js. Renaming the game is
+  // not a reason to reset everyone's options.
   var STORAGE_KEY = 'cavetyper.settings.v1';
 
   var SCHEMA = [

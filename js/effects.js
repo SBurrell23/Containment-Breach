@@ -1,10 +1,10 @@
-/* Cave Typer — pooled hit effects: impact sparks, gore, muzzle flash, brass.
+/* Containment Breach — pooled hit effects: impact sparks, gore, muzzle flash, brass.
  *
  * Everything is pre-allocated. Nothing here creates geometry at runtime, so a
  * long run does not stutter on GC. */
 (function (global) {
   'use strict';
-  var CT = (global.CaveTyper = global.CaveTyper || {});
+  var CT = (global.ContainmentBreach = global.ContainmentBreach || {});
   var S = function () { return CT.Settings; };
 
   var MAX_PARTICLES = 1400;

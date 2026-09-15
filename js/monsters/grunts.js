@@ -1,5 +1,5 @@
 /* ==========================================================================
- * Cave Typer — GRUNT tier specimens
+ * Containment Breach — GRUNT tier specimens
  * Sub-level 3 containment overflow: the small things that got out first.
  *
  *   lab_rat       — LAB RAT
@@ -14,9 +14,9 @@
 (function () {
   'use strict';
 
-  window.CaveTyper = window.CaveTyper || {};
-  window.CaveTyper.monsters = window.CaveTyper.monsters || {};
-  var MONSTERS = window.CaveTyper.monsters;
+  window.ContainmentBreach = window.ContainmentBreach || {};
+  window.ContainmentBreach.monsters = window.ContainmentBreach.monsters || {};
+  var MONSTERS = window.ContainmentBreach.monsters;
 
   var PI = Math.PI;
   var TAU = PI * 2;

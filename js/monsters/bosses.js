@@ -1,12 +1,12 @@
-/* Cave Typer — BOSS monsters (tier: 'boss')
+/* Containment Breach — BOSS monsters (tier: 'boss')
  * Classic script. THREE is a global (r128). No modules, no addons, seeded rng only.
  * Contains: patient_zero, hive_reactor, the_cultivar, warden_prime
  */
 (function () {
   'use strict';
 
-  window.CaveTyper = window.CaveTyper || {};
-  window.CaveTyper.monsters = window.CaveTyper.monsters || {};
+  window.ContainmentBreach = window.ContainmentBreach || {};
+  window.ContainmentBreach.monsters = window.ContainmentBreach.monsters || {};
 
   var TAU = Math.PI * 2;
   var PI = Math.PI;
@@ -701,7 +701,7 @@
     };
   }
 
-  window.CaveTyper.monsters['patient_zero'] = {
+  window.ContainmentBreach.monsters['patient_zero'] = {
     id: 'patient_zero',
     name: 'PATIENT ZERO',
     tier: 'boss',
@@ -1116,7 +1116,7 @@
     };
   }
 
-  window.CaveTyper.monsters['hive_reactor'] = {
+  window.ContainmentBreach.monsters['hive_reactor'] = {
     id: 'hive_reactor',
     name: 'HIVE REACTOR',
     tier: 'boss',
@@ -1514,7 +1514,7 @@
     };
   }
 
-  window.CaveTyper.monsters['the_cultivar'] = {
+  window.ContainmentBreach.monsters['the_cultivar'] = {
     id: 'the_cultivar',
     name: 'THE CULTIVAR',
     tier: 'boss',
@@ -1941,7 +1941,7 @@
     };
   }
 
-  window.CaveTyper.monsters['warden_prime'] = {
+  window.ContainmentBreach.monsters['warden_prime'] = {
     id: 'warden_prime',
     name: 'WARDEN PRIME',
     tier: 'boss',

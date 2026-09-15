@@ -1,4 +1,4 @@
-/* Cave Typer — persistent records: the specimen codex and the run archive.
+/* Containment Breach — persistent records: the specimen codex and the run archive.
  *
  * Two stores, both in localStorage, both defensive about it being unavailable
  * (private windows, file:// on some browsers) — every read falls back to empty
@@ -10,8 +10,12 @@
  * one get" is meaningless for a run you walked away from. */
 (function (global) {
   'use strict';
-  var CT = (global.CaveTyper = global.CaveTyper || {});
+  var CT = (global.ContainmentBreach = global.ContainmentBreach || {});
 
+  /* These keys keep the game's old name on purpose. They are where a player's
+   * compendium and run archive live, and renaming the game is not a reason to
+   * throw those away - a new prefix would read as an empty profile to everyone
+   * who has played before. */
   var CODEX_KEY = 'cavetyper.codex.v1';
   var RUNS_KEY = 'cavetyper.runs.v1';
   var LEGACY_BEST_KEY = 'cavetyper.best.v1';

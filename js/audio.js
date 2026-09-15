@@ -1,4 +1,4 @@
-/* Cave Typer — every sound effect synthesised at runtime, plus one scored loop.
+/* Containment Breach — every sound effect synthesised at runtime, plus one scored loop.
  *
  * Bus layout:   [voice] -> sfx|ambience|music gain -> master gain -> compressor -> out
  *
@@ -8,7 +8,7 @@
  * if the file cannot be loaded, so the game is never silent. */
 (function (global) {
   'use strict';
-  var CT = (global.CaveTyper = global.CaveTyper || {});
+  var CT = (global.ContainmentBreach = global.ContainmentBreach || {});
 
   var ctx = null;
   var master, comp, busSfx, busAmb, busMusic;

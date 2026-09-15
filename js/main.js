@@ -1,7 +1,7 @@
-/* Cave Typer — bootstrap, menus, input routing, and the frame loop. */
+/* Containment Breach — bootstrap, menus, input routing, and the frame loop. */
 (function (global) {
   'use strict';
-  var CT = (global.CaveTyper = global.CaveTyper || {});
+  var CT = (global.ContainmentBreach = global.ContainmentBreach || {});
   var S = function () { return CT.Settings; };
   var UI = CT.UI;
   var $ = UI.$;
@@ -17,7 +17,7 @@
     var f = $('fatal');
     $('fatal-msg').textContent = String(msg);
     f.classList.remove('hidden');
-    if (global.console) console.error('[CaveTyper]', msg);
+    if (global.console) console.error('[ContainmentBreach]', msg);
   }
 
   global.addEventListener('error', function (e) {
@@ -50,7 +50,7 @@
 
     var dropped = CT.MonsterRegistry.validate();
     if (dropped.length && global.console) {
-      console.warn('[CaveTyper] dropped malformed monster definitions:', dropped.join(', '));
+      console.warn('[ContainmentBreach] dropped malformed monster definitions:', dropped.join(', '));
     }
 
     try {
@@ -575,6 +575,7 @@
     game.net.close();
     directRole = 'host';
     $('direct-step').classList.remove('hidden');
+    $('direct-step').classList.remove('joining');
     $('direct-out-label').textContent = '1. Send this INVITE to the other player';
     $('direct-in-label').textContent = '2. Paste their REPLY here';
     $('direct-out').value = 'generating…';
@@ -592,8 +593,10 @@
     game.net.close();
     directRole = 'client';
     $('direct-step').classList.remove('hidden');
-    $('direct-out-label').textContent = '2. Send this REPLY back to the host';
+    // Swaps the two boxes, so step 1 is still the one at the top.
+    $('direct-step').classList.add('joining');
     $('direct-in-label').textContent = '1. Paste the host’s INVITE here, then press SUBMIT';
+    $('direct-out-label').textContent = '2. Send this REPLY back to the host';
     $('direct-out').value = '';
     $('direct-in').value = '';
     setStatus('direct-status', 'Paste the invite the host sent you, then press SUBMIT.');

@@ -1,4 +1,4 @@
-# Cave Typer — Monster Model Contract (v1)
+# Containment Breach — Monster Model Contract (v1)
 
 Theme: **science experiment gone wrong.** A deep research cave-lab where the specimens
 got out. Monsters are mutated lab animals, failed human test subjects, escaped
@@ -35,14 +35,14 @@ electrodes, exposed bone), sickly bio-luminescent glow (acid green, cyan, magent
 Each file appends to a global registry. At the top of your file:
 
 ```js
-window.CaveTyper = window.CaveTyper || {};
-window.CaveTyper.monsters = window.CaveTyper.monsters || {};
+window.ContainmentBreach = window.ContainmentBreach || {};
+window.ContainmentBreach.monsters = window.ContainmentBreach.monsters || {};
 ```
 
 Then for each monster:
 
 ```js
-window.CaveTyper.monsters['specimen_id'] = {
+window.ContainmentBreach.monsters['specimen_id'] = {
   id: 'specimen_id',
   name: 'SPECIMEN NAME',   // short, ALL CAPS, shown in the HUD. <= 18 chars.
   tier: 'grunt',           // 'grunt' | 'mid' | 'boss'

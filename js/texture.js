@@ -1,4 +1,4 @@
-/* Cave Typer — shared surface detail.
+/* Containment Breach — shared surface detail.
  *
  * Everything in this game is built from flat-shaded primitives, and untextured
  * flat-shaded primitives read as injection-moulded plastic: the big shapes are
@@ -18,7 +18,7 @@
  */
 (function (global) {
   'use strict';
-  var CT = (global.CaveTyper = global.CaveTyper || {});
+  var CT = (global.ContainmentBreach = global.ContainmentBreach || {});
 
   var RES = 256;
 

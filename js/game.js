@@ -1,4 +1,4 @@
-/* Cave Typer — the game itself.
+/* Containment Breach — the game itself.
  *
  * States: 'idle' -> 'intro' -> 'combat' -> 'cleared' -> 'travel' -> 'intro' ...
  *                                                    \-> 'over'
@@ -10,7 +10,7 @@
  * never leave the two sides drifting apart. */
 (function (global) {
   'use strict';
-  var CT = (global.CaveTyper = global.CaveTyper || {});
+  var CT = (global.ContainmentBreach = global.ContainmentBreach || {});
   var S = function () { return CT.Settings; };
   var D = function () { return CT.Difficulty; };
 

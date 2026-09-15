@@ -1,4 +1,4 @@
-/* Cave Typer — the specimen compendium.
+/* Containment Breach — the specimen compendium.
  *
  * A grid of every specimen type, locked until you have met it, with a live 3D
  * preview of the selected one. The preview is a real build from the same model
@@ -11,7 +11,7 @@
  * leaves a second GL context alive during play. */
 (function (global) {
   'use strict';
-  var CT = (global.CaveTyper = global.CaveTyper || {});
+  var CT = (global.ContainmentBreach = global.ContainmentBreach || {});
   var S = function () { return CT.Settings; };
 
   var TIER_LABEL = { grunt: 'MINOR', mid: 'MAJOR', boss: 'APEX' };

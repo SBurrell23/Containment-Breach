@@ -1,4 +1,4 @@
-/* Cave Typer — procedural cave route and ruined-lab set dressing.
+/* Containment Breach — procedural cave route and ruined-lab set dressing.
  *
  * The cave is a ROUTE, not an axis: a centre line that turns corners, addressed
  * by arc length `s`. Wall rings, props, monsters and the camera rig are all
@@ -11,7 +11,7 @@
  * what keeps two networked players walking the same corridors. */
 (function (global) {
   'use strict';
-  var CT = (global.CaveTyper = global.CaveTyper || {});
+  var CT = (global.ContainmentBreach = global.ContainmentBreach || {});
   var S = function () { return CT.Settings; };
 
   var _tmpV = new THREE.Vector3();

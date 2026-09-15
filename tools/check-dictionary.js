@@ -24,7 +24,7 @@ if (fs.existsSync(path.join(__dirname, '..', 'js/wordbank.js'))) files.push('js/
 files.push('js/words.js');
 for (const f of files) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', f), 'utf8'), sandbox, { filename: f });
 
-const CT = sandbox.CaveTyper;
+const CT = sandbox.ContainmentBreach;
 const all = CT.Words.everyWord ? CT.Words.everyWord() : [];
 if (!all.length) { console.error('CT.Words.everyWord() returned nothing.'); process.exit(2); }
 

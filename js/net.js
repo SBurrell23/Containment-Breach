@@ -1,4 +1,4 @@
-/* Cave Typer — two-player peer-to-peer.
+/* Containment Breach — two-player peer-to-peer.
  *
  * Two transports behind one interface:
  *   'broker' — PeerJS against its public broker. The host gets a 4-character
@@ -10,7 +10,7 @@
  * host's confirmations win any disagreement. */
 (function (global) {
   'use strict';
-  var CT = (global.CaveTyper = global.CaveTyper || {});
+  var CT = (global.ContainmentBreach = global.ContainmentBreach || {});
 
   var PROTOCOL = 3;
   var PEER_PREFIX = 'cvtypr-v3-';

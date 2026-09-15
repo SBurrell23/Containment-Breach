@@ -1,10 +1,10 @@
-/* Cave Typer — renderer, camera rig, lighting, quality plumbing.
+/* Containment Breach — renderer, camera rig, lighting, quality plumbing.
  *
  * The world runs down the -Z axis: the player station sits at some z, looks
  * toward -Z, and monsters walk toward +Z to reach them. */
 (function (global) {
   'use strict';
-  var CT = (global.CaveTyper = global.CaveTyper || {});
+  var CT = (global.ContainmentBreach = global.ContainmentBreach || {});
   var S = function () { return CT.Settings; };
 
   var FOG_COLOR = 0x05070a;

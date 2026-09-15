@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>CAVE TYPER — Vivarium Sub-Level 7</title>
+<title>CONTAINMENT BREACH — Vivarium Sub-Level 7</title>
 <meta name="description" content="A typing rail-shooter. The specimens got out. Type to shoot.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -67,11 +67,11 @@
       <div class="panel wide">
         <div class="logo">
           <div class="logo-sub">VIVARIUM SUB-LEVEL SEVEN</div>
-          <h1>CAVE<span>TYPER</span></h1>
+          <h1>CONTAINMENT<span>BREACH</span></h1>
           <div class="logo-rule"></div>
           <p class="tagline">
             The containment field failed at 03:14. Everything in the vivarium got out.
-            Your rifle fires on dictation.
+            Your gun fires on dictation.
           </p>
         </div>
         <div class="menu">
@@ -183,15 +183,19 @@
             <button class="btn" data-action="direct-join">I'M JOINING</button>
           </div>
           <div id="direct-step" class="direct-step hidden">
-            <label id="direct-out-label">1. Send this to the other player</label>
-            <textarea id="direct-out" readonly rows="3"></textarea>
-            <div class="menu row tight">
-              <button class="btn ghost small" data-action="copy-direct">COPY</button>
+            <div class="direct-block" id="direct-send">
+              <label id="direct-out-label">1. Send this to the other player</label>
+              <textarea id="direct-out" readonly rows="3"></textarea>
+              <div class="menu row tight">
+                <button class="btn ghost small" data-action="copy-direct">COPY</button>
+              </div>
             </div>
-            <label id="direct-in-label">2. Paste what they send back</label>
-            <textarea id="direct-in" rows="3" placeholder="CT1…"></textarea>
-            <div class="menu row tight">
-              <button class="btn primary small" data-action="submit-direct">SUBMIT</button>
+            <div class="direct-block" id="direct-recv">
+              <label id="direct-in-label">2. Paste what they send back</label>
+              <textarea id="direct-in" rows="3" placeholder="CT1…"></textarea>
+              <div class="menu row tight">
+                <button class="btn primary small" data-action="submit-direct">SUBMIT</button>
+              </div>
             </div>
           </div>
           <div id="direct-status" class="status"></div>

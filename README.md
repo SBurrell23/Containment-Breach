@@ -1,6 +1,6 @@
-# CAVE TYPER
+# CONTAINMENT BREACH
 
-### [▶ Play it](https://sburrell23.github.io/Cave-Typer/)
+### [▶ Play it](https://sburrell23.github.io/Containment-Breach/)
 
 A typing rail-shooter. The containment field in a deep cave research lab failed at
 03:14 and everything in the vivarium got out. Your rifle fires on dictation: a word
@@ -327,7 +327,7 @@ Traits are meant to be pacing-neutral — they change what a room *is*, not how 
 it is — so the two should agree, and `--flat` should agree with both. If a trait
 change moves the curve, that is the signal to fix the trait, not the curve.
 
-For real numbers, drive the actual game. `window.CaveTyper._debug()` returns
+For real numbers, drive the actual game. `window.ContainmentBreach._debug()` returns
 `{ stage, game }`, and stepping `game.update(dt)` by hand plays the game as fast as
 the machine can run it — that is how the pacing table above was measured, and how
 the two-player sync was verified with two browser tabs stepped alternately.
@@ -336,7 +336,7 @@ the two-player sync was verified with two browser tabs stepped alternately.
 
 ## Deployment
 
-Pushing to `main` publishes to <https://sburrell23.github.io/Cave-Typer/> via
+Pushing to `main` publishes to <https://sburrell23.github.io/Containment-Breach/> via
 [`.github/workflows/deploy.yml`](.github/workflows/deploy.yml). The workflow stages
 only what the browser needs — `index.html`, `css/`, `js/` — so the dev server and the
 tooling are not published. Before uploading it checks that every script the page

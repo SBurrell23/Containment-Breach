@@ -1,11 +1,11 @@
-/* Cave Typer — the typing engine.
+/* Containment Breach — the typing engine.
  *
  * One completed word is one gunshot. Targeting is implicit: the first character
  * you type picks the monster, and you stay locked onto it until the word is
  * finished, you backspace out of it, or it dies. */
 (function (global) {
   'use strict';
-  var CT = (global.CaveTyper = global.CaveTyper || {});
+  var CT = (global.ContainmentBreach = global.ContainmentBreach || {});
   var S = function () { return CT.Settings; };
 
   function Typing(hooks) {

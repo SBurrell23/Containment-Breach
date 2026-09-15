@@ -1,12 +1,12 @@
-/* Cave Typer - mid-tier specimens.
+/* Containment Breach - mid-tier specimens.
  * Classic script, three.js r128, no modules, no addons, seeded rng only.
  */
 (function () {
   'use strict';
 
-  window.CaveTyper = window.CaveTyper || {};
-  window.CaveTyper.monsters = window.CaveTyper.monsters || {};
-  var REG = window.CaveTyper.monsters;
+  window.ContainmentBreach = window.ContainmentBreach || {};
+  window.ContainmentBreach.monsters = window.ContainmentBreach.monsters || {};
+  var REG = window.ContainmentBreach.monsters;
 
   /* ======================= shared local helpers ======================= */
 

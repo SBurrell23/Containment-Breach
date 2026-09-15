@@ -40,5 +40,5 @@ http.createServer((req, res) => {
     res.end(data);
   });
 }).listen(PORT, '127.0.0.1', () => {
-  console.log('Cave Typer dev server: http://localhost:' + PORT);
+  console.log('Containment Breach dev server: http://localhost:' + PORT);
 });

@@ -1,11 +1,11 @@
-/* Cave Typer — monster registry, fallback models, and the live monster entity.
+/* Containment Breach — monster registry, fallback models, and the live monster entity.
  *
  * Model definitions are registered by the files in js/monsters/. This file owns
  * everything about a monster that is *gameplay* rather than geometry: the word
  * queue, the advance/attack state machine, hit flashes and death. */
 (function (global) {
   'use strict';
-  var CT = (global.CaveTyper = global.CaveTyper || {});
+  var CT = (global.ContainmentBreach = global.ContainmentBreach || {});
   var S = function () { return CT.Settings; };
 
   CT.monsters = CT.monsters || {};
@@ -249,7 +249,7 @@
         scale: spec.scale || 1
       });
     } catch (err) {
-      if (global.console) console.error('[CaveTyper] model "' + def.id + '" failed to build:', err);
+      if (global.console) console.error('[ContainmentBreach] model "' + def.id + '" failed to build:', err);
       built = buildFallback(spec.tier, {
         rng: rng.fn(), palette: monsterPalette(rng.fork('pal2')),
         quality: 'low', scale: 1
@@ -540,7 +540,7 @@
     } catch (err) {
       if (!this._animErrored) {
         this._animErrored = true;
-        if (global.console) console.error('[CaveTyper] "' + this.def.id + '" update() threw:', err);
+        if (global.console) console.error('[ContainmentBreach] "' + this.def.id + '" update() threw:', err);
       }
     }
   };
