@@ -1,0 +1,76 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Allow the workflow to publish Pages, and to mint the id-token Pages needs.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deployment at a time. Don't cancel a run that is mid-deploy.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The game is plain static files with no build step. Assemble only what the
+      # browser actually needs, so the dev server, the tools and the CI config
+      # don't get published alongside it.
+      - name: Stage the site
+        run: |
+          mkdir -p _site
+          cp index.html README.md _site/
+          cp -r css js _site/
+          # Tell Pages not to run Jekyll, which would otherwise drop files and
+          # directories whose names begin with an underscore.
+          touch _site/.nojekyll
+
+      - name: Sanity-check the staged site
+        run: |
+          set -e
+          test -f _site/index.html
+          test -f _site/css/style.css
+          for f in rng words settings audio difficulty scene cave effects entities typing ui net game main; do
+            test -f "_site/js/$f.js" || { echo "missing js/$f.js"; exit 1; }
+          done
+          for f in grunts mids bosses; do
+            test -f "_site/js/monsters/$f.js" || { echo "missing js/monsters/$f.js"; exit 1; }
+          done
+          # Every script the page references must exist in the artifact.
+          grep -o 'src="[^"]*\.js"' _site/index.html | sed 's/src="//;s/"//' | while read -r src; do
+            case "$src" in
+              http*) continue ;;
+              *) test -f "_site/$src" || { echo "index.html references missing $src"; exit 1; } ;;
+            esac
+          done
+          echo "staged $(find _site -type f | wc -l) files"
+
+      - name: Check every script parses
+        run: |
+          set -e
+          find _site/js -name '*.js' -print0 | xargs -0 -n1 node --check
+          echo "all scripts parse"
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

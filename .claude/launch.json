@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "cave-typer",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["tools/serve.js", "8123"],
+      "port": 8123
+    }
+  ]
+}

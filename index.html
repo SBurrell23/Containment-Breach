@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CAVE TYPER — Vivarium Sub-Level 7</title>
+<meta name="description" content="A typing rail-shooter. The specimens got out. Type to shoot.">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#9763;</text></svg>">
+</head>
+<body>
+
+<div id="app">
+  <div id="stage"></div>
+
+  <!-- floating monster labels are injected here -->
+  <div id="world-ui"></div>
+
+  <div id="vignette"></div>
+  <div id="damage-flash"></div>
+  <div id="scanlines"></div>
+
+  <!-- ===================== HUD ===================== -->
+  <div id="hud" class="hidden">
+    <div id="hud-top">
+      <div id="enc-readout">
+        <span class="lbl">CHAMBER</span>
+        <span id="enc-num">01</span>
+        <span id="enc-tag"></span>
+      </div>
+      <div id="boss-bar" class="hidden">
+        <div id="boss-name">PATIENT ZERO</div>
+        <div id="boss-hp"><i></i></div>
+      </div>
+      <div id="run-readout">
+        <span id="score">0</span>
+        <span class="lbl">SCORE</span>
+      </div>
+    </div>
+
+    <div id="crosshair"><i></i><i></i><i></i><i></i></div>
+
+    <div id="hud-bottom">
+      <div id="players"></div>
+      <div id="typebar">
+        <div id="typebar-word"></div>
+        <div id="typebar-hint">type a word above a specimen to fire</div>
+      </div>
+      <div id="perf">
+        <span id="wpm-readout"></span>
+        <span id="net-readout"></span>
+        <span id="fps-readout"></span>
+      </div>
+    </div>
+
+    <div id="toast"></div>
+  </div>
+
+  <!-- ===================== SCREENS ===================== -->
+  <div id="screens">
+
+    <!-- Title -->
+    <section id="screen-title" class="screen active">
+      <div class="panel wide">
+        <div class="logo">
+          <div class="logo-sub">VIVARIUM SUB-LEVEL SEVEN</div>
+          <h1>CAVE<span>TYPER</span></h1>
+          <div class="logo-rule"></div>
+          <p class="tagline">
+            The containment field failed at 03:14. Everything in the vivarium got out.
+            Your rifle fires on dictation. <b>Type the word over a specimen to shoot it.</b>
+          </p>
+        </div>
+        <div class="menu">
+          <button class="btn primary" data-action="play-solo">SOLO DESCENT</button>
+          <button class="btn" data-action="open-mp">TWO-PLAYER LINK</button>
+          <button class="btn" data-action="open-options">SETTINGS</button>
+          <button class="btn ghost" data-action="open-howto">HOW TO PLAY</button>
+        </div>
+        <div class="foot">
+          <span id="model-count">loading specimen archive…</span>
+          <span class="sep">•</span>
+          <span id="best-readout"></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- How to play -->
+    <section id="screen-howto" class="screen">
+      <div class="panel">
+        <h2>FIELD BRIEFING</h2>
+        <div class="scroller">
+          <div class="howto-grid">
+            <div class="ht"><b>Type to fire.</b> Every specimen carries a word over its head.
+              Finish the word and your rifle fires one round at it. There is no aiming and no
+              movement — the transit rail carries you from chamber to chamber.</div>
+            <div class="ht"><b>The first letter picks your target.</b> Press a key and you lock
+              onto the nearest specimen whose word starts with it. You stay locked until the word
+              is done. <kbd>Backspace</kbd> steps back a letter; hold it or press <kbd>Esc</kbd>
+              to drop the lock and pick something else.</div>
+            <div class="ht"><b>Tougher specimens take more words.</b> Their health bar is the
+              number of words left in them. Bosses take dozens.</div>
+            <div class="ht"><b>They are walking at you.</b> Anything that reaches you starts
+              tearing at your health bar and does not stop. Kill the closest threat first.</div>
+            <div class="ht"><b>Every tenth chamber holds a boss.</b> Long compound words, a
+              chamber full of adds, and a health bar across the top of the screen.</div>
+            <div class="ht"><b>It never ends.</b> The words get longer, then capitalised, then
+              hyphenated, then they start growing digits. See how deep you get.</div>
+            <div class="ht"><b>Two players share a cave.</b> A specimen someone else is typing
+              turns their colour — your keystrokes will find a different target first. If your
+              partner goes down, a revive word appears over them; type it fast.</div>
+          </div>
+        </div>
+        <div class="menu row">
+          <button class="btn" data-action="back-title">BACK</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Options -->
+    <section id="screen-options" class="screen">
+      <div class="panel">
+        <h2>SETTINGS</h2>
+        <div class="scroller" id="options-body"></div>
+        <div class="menu row">
+          <button class="btn primary" data-action="close-options">DONE</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Multiplayer -->
+    <section id="screen-mp" class="screen">
+      <div class="panel">
+        <h2>TWO-PLAYER LINK</h2>
+
+        <div class="mp-tabs">
+          <button class="tab active" data-mptab="host">HOST</button>
+          <button class="tab" data-mptab="join">JOIN</button>
+          <button class="tab" data-mptab="direct">DIRECT LINK</button>
+        </div>
+
+        <div class="mp-pane active" data-mppane="host">
+          <p class="note">Open a room and read the code to the other player.</p>
+          <div class="code-display">
+            <div id="room-code">••••</div>
+            <div class="code-label">ROOM CODE</div>
+          </div>
+          <div class="menu row">
+            <button class="btn primary" data-action="host-room">OPEN ROOM</button>
+            <button class="btn ghost" data-action="copy-code">COPY</button>
+          </div>
+          <div id="host-status" class="status"></div>
+        </div>
+
+        <div class="mp-pane" data-mppane="join">
+          <p class="note">Type the four-character code from the host.</p>
+          <input id="join-code" class="code-input" maxlength="4" autocomplete="off"
+                 autocapitalize="characters" spellcheck="false" placeholder="CODE">
+          <div class="menu row">
+            <button class="btn primary" data-action="join-room">CONNECT</button>
+          </div>
+          <div id="join-status" class="status"></div>
+        </div>
+
+        <div class="mp-pane" data-mppane="direct">
+          <p class="note">No broker, no room code — paste two blobs of text at each other.
+            Works when the matchmaking server is blocked.</p>
+          <div class="menu row">
+            <button class="btn" data-action="direct-host">I'M HOSTING</button>
+            <button class="btn" data-action="direct-join">I'M JOINING</button>
+          </div>
+          <div id="direct-step" class="direct-step hidden">
+            <label id="direct-out-label">1. Send this to the other player</label>
+            <textarea id="direct-out" readonly rows="3"></textarea>
+            <div class="menu row tight">
+              <button class="btn ghost small" data-action="copy-direct">COPY</button>
+            </div>
+            <label id="direct-in-label">2. Paste what they send back</label>
+            <textarea id="direct-in" rows="3" placeholder="CT1…"></textarea>
+            <div class="menu row tight">
+              <button class="btn primary small" data-action="submit-direct">SUBMIT</button>
+            </div>
+          </div>
+          <div id="direct-status" class="status"></div>
+        </div>
+
+        <div class="lobby" id="lobby">
+          <div class="lobby-row">
+            <span class="dot" id="dot-p1"></span><span>PLAYER 1</span><span id="lobby-p1">—</span>
+          </div>
+          <div class="lobby-row">
+            <span class="dot" id="dot-p2"></span><span>PLAYER 2</span><span id="lobby-p2">waiting…</span>
+          </div>
+          <button class="btn primary hidden" id="mp-start" data-action="start-coop">BEGIN DESCENT</button>
+          <div id="mp-wait" class="status hidden">waiting for the host to start…</div>
+        </div>
+
+        <div class="menu row">
+          <button class="btn" data-action="back-title">BACK</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Loading -->
+    <section id="screen-loading" class="screen">
+      <div class="panel narrow center">
+        <h2 id="loading-title">DESCENDING</h2>
+        <div class="loadbar"><i id="loadbar-fill"></i></div>
+        <div id="loading-note" class="status"></div>
+      </div>
+    </section>
+
+    <!-- Pause -->
+    <section id="screen-pause" class="screen">
+      <div class="panel narrow center">
+        <h2>PAUSED</h2>
+        <div id="pause-note" class="status"></div>
+        <div class="menu">
+          <button class="btn primary" data-action="resume">RESUME</button>
+          <button class="btn" data-action="open-options">SETTINGS</button>
+          <button class="btn ghost" data-action="quit-run">ABANDON RUN</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Game over -->
+    <section id="screen-over" class="screen">
+      <div class="panel">
+        <h2 id="over-title">CONTAINMENT LOST</h2>
+        <div id="over-depth"></div>
+        <div id="over-stats" class="stats-grid"></div>
+        <div id="over-best" class="status"></div>
+        <div class="menu row">
+          <button class="btn primary" data-action="retry">DESCEND AGAIN</button>
+          <button class="btn" data-action="back-title">MAIN MENU</button>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <div id="fatal" class="hidden"><div class="panel"><h2>SYSTEM FAULT</h2><pre id="fatal-msg"></pre></div></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+
+<script src="js/rng.js"></script>
+<script src="js/words.js"></script>
+<script src="js/settings.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/difficulty.js"></script>
+<script src="js/scene.js"></script>
+<script src="js/cave.js"></script>
+<script src="js/effects.js"></script>
+
+<script src="js/monsters/grunts.js"></script>
+<script src="js/monsters/mids.js"></script>
+<script src="js/monsters/bosses.js"></script>
+
+<script src="js/entities.js"></script>
+<script src="js/typing.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/net.js"></script>
+<script src="js/game.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
