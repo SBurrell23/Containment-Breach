@@ -97,6 +97,79 @@
     this.alertLight = new THREE.PointLight(0xff2a2a, 0, 20, 2.0);
     this.alertLight.position.set(0, 1.8, 0.5);
     this.rigRoot.add(this.alertLight);
+
+    this._buildLightPool();
+  };
+
+  /* ---- the cave's light pool ----------------------------------------------
+   *
+   * This is what the freeze between chambers was, and it is worth spelling out
+   * because nothing about it looks like a performance problem.
+   *
+   * The NUMBER of lights in the scene is compiled into every material's shader.
+   * three.js builds its program cache key from, among other things,
+   * numPointLights — so adding or removing a single point light invalidates
+   * every material in the scene at once, and they are all recompiled, on the
+   * spot, inside render(). A compile measured 35-50ms here; six in one frame is
+   * a half-second stall.
+   *
+   * The set dressing used to create a PointLight per working wall lamp and
+   * dispose it with its chunk. Chunks are recycled as the rail moves, so the
+   * light count changed exactly when the player was travelling between
+   * chambers — which is precisely where the freeze was reported, and why it
+   * never happened during a fight.
+   *
+   * So the lights are allocated once, here, and never added to or removed from
+   * the scene again. A lamp borrows one, moves it and turns it up; when its
+   * chunk is recycled the light is handed back and turned down to nothing. The
+   * count is constant for the life of the renderer, so after the warm-up pass
+   * nothing recompiles at all. */
+  var CAVE_LIGHTS = 4;
+
+  Stage.prototype._buildLightPool = function () {
+    this.lightPool = [];
+    for (var i = 0; i < CAVE_LIGHTS; i++) {
+      var pl = new THREE.PointLight(0xffd9a0, 0, 16, 1.8);
+      // Deliberately left visible. three.js skips invisible objects when it
+      // gathers lights, so hiding an idle one would change the count and undo
+      // the entire point of the pool.
+      pl.visible = true;
+      pl.position.set(0, -400, 0);
+      this.scene.add(pl);
+      this.lightPool.push({ light: pl, taken: false });
+    }
+  };
+
+  /* Borrow a light, or null when they are all out. Running out is fine: the
+   * chamber is a little darker, and nothing recompiles. */
+  Stage.prototype.takeLight = function () {
+    if (!this.lightPool) this._buildLightPool();
+    for (var i = 0; i < this.lightPool.length; i++) {
+      var slot = this.lightPool[i];
+      if (!slot.taken) {
+        slot.taken = true;
+        slot.light.intensity = 0;
+        return slot.light;
+      }
+    }
+    return null;
+  };
+
+  Stage.prototype.releaseLight = function (light) {
+    if (!light || !this.lightPool) return;
+    for (var i = 0; i < this.lightPool.length; i++) {
+      var slot = this.lightPool[i];
+      if (slot.light === light) {
+        slot.taken = false;
+        light.intensity = 0;
+        light.position.set(0, -400, 0);
+        if (light.parent && light.parent !== this.scene) {
+          light.parent.remove(light);
+          this.scene.add(light);
+        }
+        return;
+      }
+    }
   };
 
   Stage.prototype.buildRenderer = function () {
@@ -228,6 +301,86 @@
       this.stationLight.intensity = this.stationBase;
       this.lamp.intensity = this.lampBase;
     }
+  };
+
+  /* ---- shader program keepalive -------------------------------------------
+   *
+   * This is what the freeze between chambers was.
+   *
+   * three.js compiles a material's shader the first time that material renders,
+   * and it refcounts the result: when the LAST material using a permutation is
+   * disposed, the program is deleted. Chunks are recycled behind the player and
+   * every specimen in a chamber is disposed when the next one is planned, so
+   * permutations routinely fall to zero references — and the next chunk or the
+   * next chamber that needs one compiles it again, synchronously, inside
+   * render(). A compile measured 35-50ms here. Six of them landing in the same
+   * frame is a 480ms stall, and it landed during travel because that is when a
+   * recycled chunk's replacement first comes into view.
+   *
+   * The fix is to make sure the reference count can never reach zero. One
+   * material per permutation is cloned into a hidden group that is never
+   * disposed, and warm() compiles the lot behind the loading screen. Nothing
+   * else has to change: no material needs to be shared, no prop needs to know
+   * about this, and a prop added later is covered as long as it is sampled.
+   *
+   * The signature is deliberately finer than three's own program cache key.
+   * Being finer only costs a few redundant materials; being coarser would miss
+   * a permutation, and a missed permutation is the bug itself. */
+  function programSignature(m) {
+    return [
+      m.type, m.side, m.blending,
+      m.vertexColors ? 1 : 0, m.flatShading ? 1 : 0, m.transparent ? 1 : 0,
+      m.fog === false ? 0 : 1, m.depthWrite ? 1 : 0, m.alphaTest > 0 ? 1 : 0,
+      m.wireframe ? 1 : 0, m.toneMapped === false ? 0 : 1,
+      m.map ? 1 : 0, m.bumpMap ? 1 : 0, m.normalMap ? 1 : 0,
+      m.emissiveMap ? 1 : 0, m.aoMap ? 1 : 0, m.alphaMap ? 1 : 0,
+      m.lightMap ? 1 : 0, m.displacementMap ? 1 : 0,
+      m.roughnessMap ? 1 : 0, m.metalnessMap ? 1 : 0, m.specularMap ? 1 : 0,
+      m.envMap ? 1 : 0, m.skinning ? 1 : 0, m.morphTargets ? 1 : 0
+    ].join('|');
+  }
+
+  Stage.prototype._initKeepalive = function () {
+    if (this.keepGroup) return;
+    this.keepGroup = new THREE.Group();
+    this.keepGroup.visible = false;      // renderer.compile() still reaches it
+    this.keepSeen = {};
+    this.keepMats = [];
+    // One degenerate triangle, shared. It is never drawn; it exists so that the
+    // materials hang off something the scene graph will traverse.
+    this.keepGeo = new THREE.BufferGeometry();
+    this.keepGeo.setAttribute('position',
+      new THREE.Float32BufferAttribute([0, 0, 0, 0, 0, 0, 0, 0, 0], 3));
+    this.scene.add(this.keepGroup);
+  };
+
+  /* Clones one material per unseen permutation. Clones, because the originals
+   * belong to a chunk or a specimen and will be disposed with it. */
+  Stage.prototype.keepPrograms = function (materials) {
+    if (!materials || !materials.length) return 0;
+    this._initKeepalive();
+    var added = 0;
+    for (var i = 0; i < materials.length; i++) {
+      var m = materials[i];
+      if (!m || !m.type) continue;
+      var key = programSignature(m);
+      if (this.keepSeen[key]) continue;
+      this.keepSeen[key] = true;
+      var clone = m.clone();
+      this.keepMats.push(clone);
+      this.keepGroup.add(new THREE.Mesh(this.keepGeo, clone));
+      added++;
+    }
+    return added;
+  };
+
+  /* Compiles everything currently in the scene, keepalives included. Call it
+   * while the loading screen is up: this is the cost that was being paid a
+   * frame at a time, in the middle of the rail moving. */
+  Stage.prototype.warm = function () {
+    this._initKeepalive();
+    this.renderer.compile(this.scene, this.camera);
+    return this.renderer.info.programs ? this.renderer.info.programs.length : 0;
   };
 
   Stage.prototype.render = function () {

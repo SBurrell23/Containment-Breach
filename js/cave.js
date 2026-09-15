@@ -931,13 +931,22 @@
 
     g.userData.flicker = { mat: lensMat, base: broken ? 2.2 : 1.6, rate: rng.range(6, 24), broken: broken };
 
+    // Borrowed from the stage's fixed pool rather than created here. See
+    // Stage._buildLightPool: creating one would change the scene's light count
+    // and recompile every shader in the cave.
     if (wantLight) {
-      var pl = new THREE.PointLight(col, broken ? 1.5 : 1.1, broken ? 13 : 16, 1.8);
-      pl.position.z = 0.4;
-      g.add(pl);
-      g.userData.pointLight = pl;
-      g.userData.flicker.light = pl;
-      g.userData.flicker.lightBase = broken ? 1.5 : 1.1;
+      var pl = this.stage.takeLight();
+      if (pl) {
+        pl.color.setHex(col);
+        pl.distance = broken ? 13 : 16;
+        pl.decay = 1.8;
+        pl.intensity = broken ? 1.5 : 1.1;
+        pl.position.set(0, 0, 0.4);
+        g.add(pl);
+        g.userData.pointLight = pl;
+        g.userData.flicker.light = pl;
+        g.userData.flicker.lightBase = broken ? 1.5 : 1.1;
+      }
     }
     return g;
   };
@@ -1010,6 +1019,71 @@
       }
     }
     return g;
+  };
+
+  /* Every material the set dressing can produce, for the program keepalive in
+   * js/scene.js. One of each prop is built, its materials are handed over, and
+   * the models themselves are thrown away — only the shader permutations
+   * matter, and a material that was never rendered holds no program reference,
+   * so disposing the samples costs nothing.
+   *
+   * Built by walking the same _prop* methods the chunk builder calls rather
+   * than by keeping a separate list of permutations in sync with them: a
+   * permutation nobody remembered to list is exactly the stall this exists to
+   * prevent. Several passes, because some props roll for a variant — a pod may
+   * or may not have an occupant, a wall lamp may or may not still work. */
+  Cave.prototype.sampleMaterials = function () {
+    var VARIANTS = [
+      ['_propContainmentPod', []], ['_propGurney', []], ['_propBarrel', []],
+      ['_propPipes', [12]], ['_propSign', []],
+      ['_propStalagmite', [true]], ['_propStalagmite', [false]],
+      ['_propVines', []], ['_propMoss', []],
+      ['_propLight', [true]], ['_propLight', [false]],
+      ['_propCables', []], ['_propRubble', []], ['_propCatwalk', []]
+    ];
+    var out = [];
+    var dis = [];
+    var borrowed = [];
+    for (var pass = 0; pass < 4; pass++) {
+      for (var i = 0; i < VARIANTS.length; i++) {
+        var name = VARIANTS[i][0];
+        if (typeof this[name] !== 'function') continue;
+        var rng = new CT.Rng((0x5a17c0de ^ Math.imul(pass * 131 + i + 1, 0x9e3779b1)) >>> 0);
+        var group;
+        try {
+          group = this[name].apply(this, [rng, dis].concat(VARIANTS[i][1]));
+        } catch (e) {
+          continue;   // a broken prop is not worth failing the whole run over
+        }
+        group.traverse(function (o) {
+          if (o.material) out.push(o.material);
+        });
+        if (group.userData && group.userData.pointLight) borrowed.push(group.userData.pointLight);
+      }
+    }
+    // Sampling a working wall lamp borrows from the light pool; give the slots
+    // straight back, or the first chambers of the run have none left.
+    for (var b = 0; b < borrowed.length; b++) this.stage.releaseLight(borrowed[b]);
+    // The wall material too: it is rebuilt per chunk and disposed per chunk,
+    // same as everything else here.
+    var wall = this._buildWalls(0, dis);
+    if (wall && wall.material) out.push(wall.material);
+
+    // Hand the materials over before this runs — the caller clones what it
+    // needs, and these originals are scrap.
+    this._sampleScrap = dis;
+    return out;
+  };
+
+  /* Frees the sample models. Separate from sampleMaterials() so the caller can
+   * clone the permutations first. */
+  Cave.prototype.dropSamples = function () {
+    var dis = this._sampleScrap;
+    if (!dis) return;
+    for (var i = 0; i < dis.length; i++) {
+      if (dis[i] && dis[i].dispose) dis[i].dispose();
+    }
+    this._sampleScrap = null;
   };
 
   /* ---- chunk assembly ---------------------------------------------------- */
@@ -1201,6 +1275,10 @@
       this._queue = this._queue.filter(function (j) { return j.ci !== ci; });
     }
     this.root.remove(c.group);
+    // Hand back any borrowed lights before the group goes, or the pool leaks
+    // slots and later chambers go dark.
+    for (var li = 0; li < c.lights.length; li++) this.stage.releaseLight(c.lights[li]);
+    c.lights.length = 0;
     // Instanced props own a per-instance matrix buffer that is not the shared
     // geometry, so disposing the geometry alone leaks it.
     c.group.traverse(function (o) { if (o.isInstancedMesh) o.dispose(); });

@@ -106,6 +106,10 @@
     // and the opening chamber is fully dressed before the player sees it.
     this.cave.drain();
 
+    // Compile every shader permutation the run can produce, now, while the
+    // loading screen is up. See Stage.keepPrograms in js/scene.js for why.
+    this.warmPrograms();
+
     this.hud.buildPlayers(this.players, this.mySlot);
     this.hud.show(true);
     this.hud.setScore(0);
@@ -164,6 +168,31 @@
     CT.Audio.stopAll();
     if (CT.Records) CT.Records.flush();
     if (this.net.isMultiplayer()) { this.net.send({ t: 'bye' }); this.net.close(); }
+  };
+
+  /* Builds one of every prop and every specimen, hands their materials to the
+   * renderer's keepalive, and compiles the lot. Runs once per run, behind the
+   * loading screen, in place of paying for it a stall at a time during play. */
+  Game.prototype.warmPrograms = function () {
+    if (!this.stage.keepPrograms) return;
+    var t0 = (global.performance && performance.now) ? performance.now() : 0;
+    var kept = 0;
+    try {
+      kept += this.stage.keepPrograms(this.cave.sampleMaterials());
+      this.cave.dropSamples();
+    } catch (e) {
+      if (global.console) console.warn('[warm] set dressing:', e);
+    }
+    try {
+      kept += this.stage.keepPrograms(CT.MonsterRegistry.sampleMaterials());
+    } catch (e2) {
+      if (global.console) console.warn('[warm] specimens:', e2);
+    }
+    var programs = this.stage.warm();
+    if (global.console && global.performance) {
+      console.log('[warm] ' + kept + ' permutations, ' + programs + ' programs, ' +
+                  Math.round(performance.now() - t0) + 'ms');
+    }
   };
 
   /* ---- encounters -------------------------------------------------------- */

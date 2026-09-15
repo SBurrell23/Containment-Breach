@@ -193,6 +193,43 @@
       return out;
     },
     get: function (id) { return CT.monsters[id] || null; },
+
+    /* Every material the specimen models can produce, for the program keepalive
+     * in js/scene.js. Specimens are the worst case for shader churn: every
+     * monster in a chamber is disposed the moment the next chamber is planned,
+     * so a permutation used by only one model drops to zero references and is
+     * recompiled the next time that model turns up.
+     *
+     * Each model is built once and thrown straight away. Only its materials are
+     * handed back, and a material that has never rendered holds no program
+     * reference, so nothing is leaked by dropping the geometry. */
+    sampleMaterials: function () {
+      var out = [];
+      var ids = [];
+      for (var id in CT.monsters) ids.push(id);
+      for (var i = 0; i < ids.length; i++) {
+        var def = CT.monsters[ids[i]];
+        var rng = new CT.Rng(CT.hashString('warm:' + def.id));
+        var built = null;
+        try {
+          built = def.build({
+            rng: rng.fn(),
+            palette: monsterPalette(rng.fork('pal')),
+            quality: S().get('quality'),
+            scale: 1
+          });
+        } catch (e) { continue; }
+        var mats = built.materials || [];
+        for (var m = 0; m < mats.length; m++) {
+          // The same detail map the live specimen would get, or the keepalive
+          // holds the wrong permutation and the real one still stalls.
+          CT.detailMat(mats[m], 'hide', 3, 0.014);
+          out.push(mats[m]);
+        }
+        try { built.dispose(); } catch (e2) { /* best effort */ }
+      }
+      return out;
+    },
     summary: function () {
       var c = { grunt: 0, mid: 0, boss: 0 };
       for (var id in CT.monsters) if (!CT.monsters[id].fallback) c[CT.monsters[id].tier]++;
