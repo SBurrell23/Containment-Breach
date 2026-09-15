@@ -102,6 +102,9 @@
     this.stationS = 0;
     this.placeRig(0);
     this.cave.streamTo(40);
+    // The loading screen is up, so finishing the first chunks now costs nothing
+    // and the opening chamber is fully dressed before the player sees it.
+    this.cave.drain();
 
     this.hud.buildPlayers(this.players, this.mySlot);
     this.hud.show(true);
@@ -198,6 +201,9 @@
     for (var i = 0; i < plan.monsters.length; i++) {
       this.monsters.push(new CT.Monster(plan.monsters[i], this));
     }
+    // Offspring take uids above everything the plan allocated, so a split can
+    // never collide with a specimen that is already in the room.
+    this._nextUid = plan.monsters.length + 64;
 
     this.hud.setEncounter(plan.index, plan.boss, plan.totalWords);
     var intensity = Math.min(1.4, plan.index / 34);
@@ -213,6 +219,8 @@
       CT.Audio.alarm();
       if (plan.index === 0) {
         this.hud.say('TYPE THE WORDS\nTO FIRE', false, 3200);
+      } else if (plan.theme) {
+        this.hud.say(plan.theme.name, false, 1800);
       } else if (plan.index % 5 === 4) {
         this.hud.say('CHAMBER ' + (plan.index + 1), false, 1400);
       }
@@ -269,6 +277,7 @@
     if (this.net.isHost()) {
       var killed = m.takeWordHit();
       this.shotFx(m, slot, killed);
+      if (killed) this.spawnSplit(m);
       this.awardWord(slot, word, m, killed);
       if (this.net.isMultiplayer()) {
         this.net.send({ t: 'hit', uid: m.uid, wi: m.wordIndex, slot: slot, killed: killed });
@@ -297,19 +306,16 @@
   Game.prototype.shotFx = function (m, slot, killed) {
     var hitPos = m.hitWorld(new THREE.Vector3());
     var pan = this.panFor(m.group.position);
-    var color = slot === 1 ? 0x36e0ff : 0xffe9b0;
 
     // Every shot leaves its own player's rifle, so in co-op the partner's barrel
     // visibly bucks and flashes when they fire — otherwise the only sign anyone
     // else is in the cave is health draining off a specimen you were not
     // looking at. Their shot shakes the camera a little, but nowhere near as
     // much as your own: the recoil is theirs, not yours.
-    var from = this.effects.muzzleWorld(new THREE.Vector3(), slot);
     this.effects.muzzleFlash(killed ? 1.5 : 1, slot);
     this.effects.ejectShell(slot);
     if (slot === this.mySlot) this.stage.fireFeedback(killed ? 1.4 : 1);
     else this.stage.addShake(0.05);
-    this.effects.tracer(from, hitPos, color);
     this.effects.impact(hitPos, m.gooColor);
 
     if (killed && slot === this.mySlot && CT.Records) {
@@ -327,6 +333,55 @@
       CT.Audio.shot(pan, 1);
       CT.Audio.hit(pan);
     }
+  };
+
+  /* A specimen with the split trait just died, so whatever was inside it gets
+   * out where it fell. Host-only: the client is told what spawned rather than
+   * rolling its own, because two ends disagreeing about how many things are in
+   * the room is far worse than a frame of latency on a creature that is still
+   * playing its emergence animation. */
+  Game.prototype.spawnSplit = function (m) {
+    if (!this.net.isHost()) return;
+    var spec = m.spec;
+    if (!spec || !spec.split) return;
+
+    var specs = D().splitSpecs({
+      uid: spec.uid,
+      typeId: spec.typeId,
+      tier: spec.tier,
+      gen: spec.gen || 0,
+      x: m.laneX,
+      // Where the parent actually died, not where it was planned to start.
+      atDist: m.dist,
+      startDist: spec.startDist,
+      speed: spec.speed,
+      meleeDist: spec.meleeDist,
+      damage: spec.damage,
+      attackInterval: spec.attackInterval,
+      scale: spec.scale || 1,
+      words: spec.words,
+      split: spec.split
+    }, this._nextUid, this.encounterSeed, this._plan ? this._plan.difficulty : 0);
+
+    if (!specs.length) return;
+    this._nextUid += specs.length;
+    this.addSpecs(specs);
+    if (this.net.isMultiplayer()) this.net.send({ t: 'spawn', specs: specs });
+  };
+
+  /* Put mid-encounter arrivals in the room and keep the HUD's word count
+   * honest about them. */
+  Game.prototype.addSpecs = function (specs) {
+    var added = 0;
+    for (var i = 0; i < specs.length; i++) {
+      if (this.findMonster(specs[i].uid)) continue;   // idempotent on replay
+      this.monsters.push(new CT.Monster(specs[i], this));
+      added += specs[i].words.length;
+    }
+    if (added && this._plan) {
+      this.hud.setEncounter(this._plan.index, this._plan.boss, this._plan.totalWords);
+    }
+    this.stage.addShake(0.18);
   };
 
   /* ---- monster attacks --------------------------------------------------- */
@@ -536,7 +591,13 @@
     this.updateLabels();
     this.updateNetSync(dt);
 
-    if (this.cave) this.cave.update(dt, this.time, this.stationS);
+    if (this.cave) {
+      // Stream in every state, not just while travelling: the queue then fills
+      // and drains during combat, when the player is parked and there is frame
+      // budget going spare, rather than racing the rail.
+      this.cave.streamTo(this.stationS + 40);
+      this.cave.update(dt, this.time, this.stationS);
+    }
     this.effects.update(dt, this.time);
 
     // Nudge the camera toward whatever we are shooting at, and keep it there
@@ -807,6 +868,7 @@
       var word = m.currentWord();
       var killed = m.takeWordHit();
       self.shotFx(m, msg.slot, killed);
+      if (killed) self.spawnSplit(m);
       if (word) self.awardWord(msg.slot, word, m, killed);
       var p = self.players[msg.slot];
       if (p) p.words++;
@@ -827,6 +889,11 @@
         m.claim[0] = m.claim[1] = null;
       }
       self.typing.validate();
+    });
+
+    net.on('spawn', function (msg) {
+      if (net.isHost() || !msg.specs) return;
+      self.addSpecs(msg.specs);
     });
 
     net.on('atk', function (msg) {

@@ -28,8 +28,8 @@
 
     // Average characters per word at a given difficulty. Must track what
     // CT.Words actually produces — see tools/check-words.js.
-    baseWordLen: 4.4,
-    wordLenGrowth: 7.4,
+    baseWordLen: 4.3,
+    wordLenGrowth: 7.8,
 
     // Word-generation difficulty scalar (feeds CT.Words).
     difficultyDivisor: 52,
@@ -48,7 +48,9 @@
     spawnDistMax: 27,
     meleeDist: 4.2,
     bossMeleeDist: 7.5,
-    minSpeed: 0.55,
+    // Low enough that a slow, long-reach specimen can actually crawl. The
+    // floor exists to stop a creature appearing frozen, not to schedule it.
+    minSpeed: 0.28,
     maxSpeed: 5.5,
 
     // When each monster should reach the player, as a fraction of the
@@ -168,6 +170,120 @@
     return { grunt: 0.3, mid: 0.7 };
   }
 
+  /* ---- specimen traits ---------------------------------------------------
+   *
+   * Every specimen used to behave identically: same walk, same share of the
+   * chamber's words, same bite. These multipliers give each model its own
+   * reason to be feared. A spider graft is on you in seconds and folds to two
+   * words; a security husk takes forever to arrive and then will not die.
+   *
+   * The table is budget-neutral by construction. `words` only changes how a
+   * chamber's fixed word budget is *divided*, never how large it is, so a room
+   * full of fragile spiders is a room of many cheap targets rather than a free
+   * one - and a splitter's offspring are paid for out of the parent's share.
+   * tools/check-encounters.js plans real chambers and replays their damage, so
+   * the effect on the curve is measured rather than assumed.
+   *
+   *   speed     walking speed; arrival time scales inversely with it
+   *   words     share of the chamber's word budget
+   *   damage    damage per bite
+   *   interval  seconds between bites
+   *   reach     melee stand-off - a long reach lashes from well out of the pack
+   *   scale     model size
+   *   split     on death, this many smaller copies claw their way out
+   */
+  var TRAITS = {
+    // Grunts.
+    spider_graft:  { speed: 1.95, words: 0.50, damage: 0.80, scale: 0.90 },
+    lab_rat:       { speed: 1.60, words: 0.62, damage: 0.85, scale: 0.94 },
+    roach_host:    { speed: 1.15, words: 0.85 },
+    failed_clone:  { speed: 0.92, words: 1.15, damage: 1.10 },
+    goo_crawler:   { speed: 0.55, words: 1.00, damage: 1.05,
+                     split: { count: 2, words: 0.42, speed: 1.45, damage: 0.70, scale: 0.62 } },
+
+    // Mids.
+    security_husk: { speed: 0.62, words: 1.55, damage: 1.35, interval: 1.30, scale: 1.05 },
+    tendril_stalk: { speed: 0.48, words: 1.20, interval: 1.15, reach: 2.60 },
+    vat_grown:     { speed: 0.85, words: 1.25, damage: 1.15 },
+    chimera_pack:  { speed: 1.55, words: 0.80, damage: 0.80, interval: 0.70 },
+    swarm_mother:  { speed: 0.80, words: 1.15,
+                     split: { count: 3, typeId: 'roach_host', tier: 'grunt',
+                              words: 0.26, speed: 1.55, damage: 0.65, scale: 0.58 } }
+  };
+
+  var NO_TRAITS = { speed: 1, words: 1, damage: 1, interval: 1, reach: 1, scale: 1, split: null };
+
+  function traitsFor(typeId) {
+    var t = TRAITS[typeId];
+    if (!t) return NO_TRAITS;
+    var out = {};
+    for (var k in NO_TRAITS) out[k] = t[k] === undefined ? NO_TRAITS[k] : t[k];
+    return out;
+  }
+
+  /* How much typing a specimen is worth once its offspring are counted. The
+   * chamber's budget is divided by this, so a splitter cannot smuggle extra
+   * work past the pacing curve. */
+  function costFactor(tr) {
+    return tr.split ? 1 + tr.split.count * tr.split.words : 1;
+  }
+
+  /* Short tags for the compendium, so a player who has met a thing once can
+   * look up why it killed them. */
+  function traitTags(typeId) {
+    var t = TRAITS[typeId];
+    if (!t) return [];
+    var out = [];
+    if (t.speed >= 1.4) out.push('fast');
+    else if (t.speed <= 0.7) out.push('slow');
+    if (t.words <= 0.7) out.push('fragile');
+    else if (t.words >= 1.3) out.push('durable');
+    if (t.damage >= 1.3) out.push('brutal');
+    if (t.interval <= 0.8) out.push('frenzied');
+    if (t.reach >= 2) out.push('long reach');
+    if (t.split) out.push('splits on death');
+    return out;
+  }
+
+  /* ---- chamber themes ----------------------------------------------------
+   *
+   * About a third of chambers commit to one kind of specimen, which turns the
+   * room into a single problem - a wall of fast fragile things, or two heavies
+   * and nothing else - instead of the same balanced assortment every time. The
+   * rest stay a random draw, so a theme still reads as an event.
+   *
+   * `count` rescales the monster count: a swarm wants more bodies for the same
+   * words, a heavy chamber wants fewer and bigger.
+   */
+  var THEMES = [
+    { id: 'vermin',   name: 'VERMIN SWARM',     minIndex: 1,  count: 1.40, types: ['lab_rat', 'roach_host'] },
+    { id: 'arachnid', name: 'ARACHNID CLUSTER', minIndex: 2,  count: 1.35, types: ['spider_graft'] },
+    { id: 'culture',  name: 'CULTURE SPILL',    minIndex: 4,  count: 0.80, types: ['goo_crawler'] },
+    { id: 'pack',     name: 'PACK BEHAVIOUR',   minIndex: 9,  count: 1.10, types: ['chimera_pack', 'failed_clone'] },
+    { id: 'heavy',    name: 'HEAVY SPECIMENS',  minIndex: 13, count: 0.55, types: ['security_husk', 'vat_grown'] },
+    { id: 'growth',   name: 'UNCHECKED GROWTH', minIndex: 17, count: 0.75, types: ['swarm_mother', 'tendril_stalk'] }
+  ];
+
+  var THEME_CHANCE = 0.35;
+
+  /* A theme is only offered if the models it names actually registered, so a
+   * dropped model file costs variety and nothing else. */
+  function pickTheme(rng, index, registry) {
+    if (isBoss(index) || index < 1) return null;
+    if (!rng.bool(THEME_CHANCE)) return null;
+    var open = [];
+    for (var i = 0; i < THEMES.length; i++) {
+      var th = THEMES[i];
+      if (index < th.minIndex) continue;
+      var have = [];
+      for (var j = 0; j < th.types.length; j++) {
+        if (registry.get(th.types[j])) have.push(th.types[j]);
+      }
+      if (have.length) open.push({ id: th.id, name: th.name, count: th.count, types: have });
+    }
+    return open.length ? rng.pick(open) : null;
+  }
+
   /* ---- encounter planning ------------------------------------------------ */
 
   /* Returns a fully-specified encounter. Deterministic in (runSeed, index,
@@ -186,6 +302,8 @@
 
     var monsters = [];
     var uid = 0;
+    var theme = null;
+    var plannedWords = 0;
 
     function pickType(tier) {
       var pool = tier === 'boss' ? bosses : (tier === 'mid' ? mids : grunts);
@@ -200,105 +318,168 @@
       return (t - 0.5) * 2 * spread + rng.range(-0.8, 0.8);
     }
 
+    /* Set so that the average arrival time across the chamber is the one the
+     * pacing curve asked for, whatever mix of speeds is in the room. Without
+     * it, a chamber of nothing but spider grafts arrives twice as early as
+     * planned and deals roughly twice the damage — the theme would not be
+     * changing the room's character, it would be secretly changing its
+     * difficulty. Speed traits still do their job: they are relative to the
+     * other things in the room, which is the comparison a player actually
+     * makes. */
+    var speedNorm = 1;
+
+    /* Turn a chosen type and a word count into a spec, applying its traits.
+     * `arrive` is when the thing is wanted at the player, before its own speed
+     * trait pulls that earlier or pushes it later. */
+    function makeSpec(type, words, opts) {
+      var tr = traitsFor(type.id);
+      var melee = (opts.boss ? TUNING.bossMeleeDist : TUNING.meleeDist) * tr.reach;
+      var dist = opts.dist;
+      // Clamped once, after the traits, not before and after. Clamping the
+      // scheduled speed first put a floor under it that a slow trait could not
+      // get below, so a long-reach specimen — which has much less ground to
+      // cover before it can start swinging — arrived well ahead of schedule
+      // despite being the slowest thing in the room.
+      var base = (dist - melee) / Math.max(2.5, opts.arrive);
+      return {
+        uid: uid++,
+        typeId: type.id,
+        tier: type.tier,
+        boss: !!opts.boss,
+        gen: 0,
+        x: opts.x,
+        startDist: dist,
+        spawnDelay: opts.delay,
+        speed: CT.clamp(base * tr.speed * (opts.boss ? 1 : speedNorm),
+                        TUNING.minSpeed, TUNING.maxSpeed),   // the only clamp
+        meleeDist: melee,
+        words: CT.Words.makeSet(rng, words, diff, !!opts.boss),
+        damage: attackDamage(index, !!opts.boss) * tr.damage,
+        attackInterval: TUNING.attackInterval * tr.interval *
+                        (opts.boss ? TUNING.bossAttackIntervalMul : 1),
+        scale: (opts.scale === undefined ? TUNING.tierScale[type.tier] : opts.scale) * tr.scale,
+        split: tr.split
+      };
+    }
+
+    /* Arrival time runs as 1/speed, so it is the mean of the reciprocals that
+     * has to come out at 1, not the mean of the speeds. */
+    function normaliseSpeed(types) {
+      var acc = 0;
+      for (var i = 0; i < types.length; i++) acc += 1 / traitsFor(types[i].id).speed;
+      speedNorm = types.length ? acc / types.length : 1;
+    }
+
+    /* Split `budget` words across `types`, weighting by each type's word trait
+     * and by a little noise, and charging splitters for their offspring. */
+    function shareWords(types, budget) {
+      var n = types.length;
+      var weights = [], sum = 0, i;
+      for (i = 0; i < n; i++) {
+        var w = rng.range(0.8, 1.25) * traitsFor(types[i].id).words;
+        weights.push(w); sum += w;
+      }
+      var assigned = [], actual = 0;
+      for (i = 0; i < n; i++) {
+        var cf = costFactor(traitsFor(types[i].id));
+        var got = Math.max(1, Math.round((budget * weights[i] / sum) / cf));
+        assigned.push(got);
+        actual += got * cf;
+      }
+      // Walk the list until the true cost lands on the budget. A splitter moves
+      // the total by more than one per word, so this cannot just count words.
+      for (var guard = 0; Math.abs(actual - budget) >= 1 && guard < 600; guard++) {
+        var k = guard % n;
+        var cfk = costFactor(traitsFor(types[k].id));
+        if (actual < budget) { assigned[k]++; actual += cfk; }
+        else if (assigned[k] > 1) { assigned[k]--; actual -= cfk; }
+        else break;
+      }
+      return { words: assigned, cost: actual };
+    }
+
     if (boss) {
       var bossWords = Math.round(totalWords * TUNING.bossWordShare);
       var bt = pickType('boss');
       var bossDist = TUNING.spawnDistMax + 9;
-      monsters.push({
-        uid: uid++,
-        typeId: bt.id,
-        tier: 'boss',
+      monsters.push(makeSpec(bt, bossWords, {
         boss: true,
         x: rng.range(-1.5, 1.5),
-        startDist: bossDist,
-        spawnDelay: 0.9,
+        dist: bossDist,
+        delay: 0.9,
         // Bosses close slowly and then stay at range, chewing on the player.
-        speed: CT.clamp((bossDist - TUNING.bossMeleeDist) / (T * 0.9), 0.35, 2.2),
-        meleeDist: TUNING.bossMeleeDist,
-        words: CT.Words.makeSet(rng, bossWords, diff, true),
-        damage: attackDamage(index, true),
-        attackInterval: TUNING.attackInterval * TUNING.bossAttackIntervalMul,
+        arrive: T * 0.9,
         scale: TUNING.tierScale.boss
-      });
+      }));
+      plannedWords += bossWords;
 
       // Adds trickle in over the fight in waves.
       var addWords = totalWords - bossWords;
       var addCount = Math.max(3, Math.round(monsterCount(index, players) * 0.9));
-      var perAdd = Math.max(1, Math.round(addWords / addCount));
       var mix = tierMixFor(index);
+      var addTypes = [];
+      for (var a0 = 0; a0 < addCount; a0++) {
+        addTypes.push(pickType(rng.next() < mix.mid ? 'mid' : 'grunt'));
+      }
+      normaliseSpeed(addTypes);
+      var addShare = shareWords(addTypes, addWords);
+      plannedWords += addShare.cost;
       for (var a = 0; a < addCount; a++) {
         var wave = Math.floor(a / Math.max(1, Math.ceil(addCount / TUNING.bossAddWaves)));
-        var at = pickType(rng.next() < mix.mid ? 'mid' : 'grunt');
-        var dist = rng.range(TUNING.spawnDistMin, TUNING.spawnDistMax);
-        var delay = 2.5 + wave * (T / (TUNING.bossAddWaves + 0.5)) + rng.range(0, 1.4);
-        var arrive = Math.max(4, T * 0.45);
-        monsters.push({
-          uid: uid++,
-          typeId: at.id,
-          tier: at.tier,
-          boss: false,
+        monsters.push(makeSpec(addTypes[a], addShare.words[a], {
           x: laneX(a, addCount),
-          startDist: dist,
-          spawnDelay: delay,
-          speed: CT.clamp((dist - TUNING.meleeDist) / arrive, TUNING.minSpeed, TUNING.maxSpeed),
-          meleeDist: TUNING.meleeDist,
-          words: CT.Words.makeSet(rng, perAdd, diff, false),
-          damage: attackDamage(index, false),
-          attackInterval: TUNING.attackInterval,
-          scale: TUNING.tierScale[at.tier] * rng.range(0.92, 1.08)
-        });
+          dist: rng.range(TUNING.spawnDistMin, TUNING.spawnDistMax),
+          delay: 2.5 + wave * (T / (TUNING.bossAddWaves + 0.5)) + rng.range(0, 1.4),
+          arrive: Math.max(4, T * 0.45),
+          scale: TUNING.tierScale[addTypes[a].tier] * rng.range(0.92, 1.08)
+        }));
       }
     } else {
+      theme = pickTheme(rng, index, registry);
       var n = monsterCount(index, players);
+      if (theme) {
+        n = Math.max(TUNING.minMonsters,
+                     Math.min(TUNING.maxMonsters * 2, Math.round(n * theme.count)));
+      }
       var mix2 = tierMixFor(index);
-      // Distribute words with a bit of variance, then fix up the total.
-      var weights = [], sum = 0;
-      for (var i = 0; i < n; i++) { var w = rng.range(0.75, 1.3); weights.push(w); sum += w; }
-      var assigned = [], acc = 0;
-      for (var i2 = 0; i2 < n; i2++) {
-        var wc = Math.max(1, Math.round(totalWords * weights[i2] / sum));
-        assigned.push(wc); acc += wc;
+
+      var types = [];
+      for (var i0 = 0; i0 < n; i0++) {
+        if (theme) types.push(registry.get(rng.pick(theme.types)));
+        else types.push(pickType(rng.next() < mix2.mid ? 'mid' : 'grunt'));
       }
-      // nudge to match the target exactly
-      var d2 = totalWords - acc;
-      var gi = 0;
-      while (d2 !== 0 && gi < 500) {
-        var k = gi % n;
-        if (d2 > 0) { assigned[k]++; d2--; }
-        else if (assigned[k] > 1) { assigned[k]--; d2++; }
-        gi++;
-      }
+      normaliseSpeed(types);
+      var share = shareWords(types, totalWords);
+      plannedWords = share.cost;
 
       var order = [];
       for (var i3 = 0; i3 < n; i3++) order.push(i3);
       rng.shuffle(order);
 
+      /* Arrival slots go to the cheapest specimens first. The arrival ramp
+       * assumes the player is clearing the room at a steady rate, which only
+       * holds if what arrives early is also what dies early; put a specimen
+       * carrying five times its neighbour's words at the front and everything
+       * behind it lands while the player is still on the first one. Lightest
+       * first is also the reading a player would expect anyway — the quick
+       * fragile things reach you while the heavy ones are still lumbering. */
+      var slot = [];
+      for (var i5 = 0; i5 < n; i5++) slot.push(i5);
+      slot.sort(function (a, b) { return share.words[a] - share.words[b]; });
+      var rank = [];
+      for (var i6 = 0; i6 < n; i6++) rank[slot[i6]] = i6;
+
       for (var i4 = 0; i4 < n; i4++) {
-        var slot = order[i4];
-        var tier = rng.next() < mix2.mid ? 'mid' : 'grunt';
-        // A monster carrying lots of words should be a beefier silhouette.
-        if (assigned[i4] >= 5 && mids.length && rng.bool(0.6)) tier = 'mid';
-        var type = pickType(tier);
-        var dist4 = rng.range(TUNING.spawnDistMin, TUNING.spawnDistMax);
-        var frac = n === 1 ? 0.8 : i4 / (n - 1);
+        var frac = n === 1 ? 0.8 : rank[i4] / (n - 1);
         var arriveAt = T * CT.lerp(TUNING.arrivalFirst, TUNING.arrivalLast, frac);
         var delay4 = rng.range(0, Math.min(2.2, T * 0.18));
-        monsters.push({
-          uid: uid++,
-          typeId: type.id,
-          tier: type.tier,
-          boss: false,
-          x: laneX(slot, n),
-          startDist: dist4,
-          spawnDelay: delay4,
-          speed: CT.clamp((dist4 - TUNING.meleeDist) / Math.max(2.5, arriveAt - delay4),
-                          TUNING.minSpeed, TUNING.maxSpeed),
-          meleeDist: TUNING.meleeDist,
-          words: CT.Words.makeSet(rng, assigned[i4], diff, false),
-          damage: attackDamage(index, false),
-          attackInterval: TUNING.attackInterval,
-          scale: TUNING.tierScale[type.tier] * rng.range(0.9, 1.12)
-        });
+        monsters.push(makeSpec(types[i4], share.words[i4], {
+          x: laneX(order[i4], n),
+          dist: rng.range(TUNING.spawnDistMin, TUNING.spawnDistMax),
+          delay: delay4,
+          arrive: arriveAt - delay4,
+          scale: TUNING.tierScale[types[i4].tier] * rng.range(0.9, 1.12)
+        }));
       }
     }
 
@@ -309,11 +490,58 @@
       players: players,
       difficulty: diff,
       requiredWpm: requiredWpm(index),
-      totalWords: totalWords,
+      // The honest figure, offspring included, so the HUD does not promise a
+      // number the chamber will overshoot the moment something splits.
+      totalWords: Math.round(plannedWords),
+      budgetWords: totalWords,
       nominalTime: T,
+      theme: theme ? { id: theme.id, name: theme.name } : null,
       travelTime: boss ? TUNING.bossTravelTime : TUNING.travelTime,
       monsters: monsters
     };
+  }
+
+  /* Specs for whatever crawls out of a dying splitter. Host-authoritative: only
+   * the host calls this and it ships the result, so the two ends can never
+   * disagree about how many things are suddenly in the room. Offspring carry
+   * split: null, so the cascade stops at one generation and the word budget the
+   * parent was charged for stays correct. */
+  function splitSpecs(parent, uidBase, seed, difficulty) {
+    var sp = parent.split;
+    if (!sp) return [];
+    var rng = new CT.Rng((seed ^ Math.imul(parent.uid + 31, 0x9e3779b1)) >>> 0);
+    var n = sp.count;
+    var words = Math.max(1, Math.round(parent.words.length * sp.words));
+    var at = parent.atDist === undefined ? parent.startDist : parent.atDist;
+    var out = [];
+    for (var i = 0; i < n; i++) {
+      var spread = n === 1 ? 0 : (i / (n - 1) - 0.5) * 2;
+      out.push({
+        uid: uidBase + i,
+        typeId: sp.typeId || parent.typeId,
+        tier: sp.tier || parent.tier,
+        boss: false,
+        gen: (parent.gen || 0) + 1,
+        x: parent.x + spread * 1.5 + rng.range(-0.3, 0.3),
+        // Offspring recoil a few units back from where the parent burst rather
+        // than appearing already in contact. A splitter that dropped two things
+        // straight onto the player's face was free damage the word budget could
+        // not pay for: the budget buys typing time, not the seconds you spend
+        // being bitten. This way they still close fast — they inherit a big
+        // speed multiplier — but they have to close.
+        startDist: Math.max(parent.meleeDist + 3.0, at + 3.2) + rng.range(0, 1.2),
+        // Short enough that the parent's gibs are still in the air.
+        spawnDelay: 0.18 + i * 0.08,
+        speed: CT.clamp(parent.speed * sp.speed, TUNING.minSpeed, TUNING.maxSpeed),
+        meleeDist: parent.meleeDist,
+        words: CT.Words.makeSet(rng, words, difficulty || 0, false),
+        damage: parent.damage * (sp.damage === undefined ? 1 : sp.damage),
+        attackInterval: parent.attackInterval * (sp.interval === undefined ? 1 : sp.interval),
+        scale: (parent.scale || 1) * sp.scale,
+        split: null
+      });
+    }
+    return out;
   }
 
   /* ---- headless pacing check --------------------------------------------
@@ -385,7 +613,12 @@
     monsterCount: monsterCount,
     nominalTime: nominalTime,
     attackDamage: attackDamage,
+    TRAITS: TRAITS,
+    THEMES: THEMES,
+    traitsFor: traitsFor,
+    traitTags: traitTags,
     planEncounter: planEncounter,
+    splitSpecs: splitSpecs,
     simulate: simulate
   };
 })(typeof window !== 'undefined' ? window : globalThis);

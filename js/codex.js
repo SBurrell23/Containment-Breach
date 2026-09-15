@@ -254,10 +254,16 @@
       ['deepest', 'chamber ' + (e.deepest || 1)],
       ['first met', CT.Records.fmtDate(e.first)]
     ];
+    // What makes this one different, in the player's terms: the thing that
+    // killed them is more useful to name than to describe.
+    var tags = (CT.Difficulty && CT.Difficulty.traitTags) ? CT.Difficulty.traitTags(def.id) : [];
+    var meta = def.size.height.toFixed(1) + 'm tall';
+    if (tags.length) meta += '  \u00b7  ' + tags.join('  \u00b7  ');
+
     info.innerHTML =
       '<div class="cx-title"><b>' + CT.UI.escapeHtml(def.name) + '</b>' +
       '<span class="cx-badge ' + def.tier + '">' + (TIER_LABEL[def.tier] || def.tier) + '</span></div>' +
-      '<div class="cx-meta">' + def.size.height.toFixed(1) + 'm tall</div>' +
+      '<div class="cx-meta">' + CT.UI.escapeHtml(meta) + '</div>' +
       '<div class="cx-stats">' + stats.map(function (s) {
         return '<div><span class="k">' + s[0] + '</span><span class="v">' + s[1] + '</span></div>';
       }).join('') + '</div>';
