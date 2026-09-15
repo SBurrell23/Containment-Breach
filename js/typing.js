@@ -137,7 +137,8 @@
    *   'hit'      matched the next character
    *   'word'     completed the word (a shot was fired)
    *   'bad'      wrong key against the current target
-   *   'locked'   strict mode, waiting for backspace
+   *   'locked'   strict mode, already waiting for a backspace: the key was
+   *              swallowed, and it is NOT counted as a fresh mistype
    */
   Typing.prototype.key = function (ch, monsters, slot) {
     this.slot = slot;
@@ -188,7 +189,10 @@
     this.stats.streak = 0;
     if (S().get('strictBackspace')) this.error = true;
     if (this.hooks.onBadKey) this.hooks.onBadKey();
-    return S().get('strictBackspace') ? 'locked' : 'bad';
+    // 'bad' either way. Strict mode's lock is carried by this.error, and the
+    // caller needs to know a wrong CHARACTER was typed — which is what heats
+    // the rifle — not which correction mode the player is in.
+    return 'bad';
   };
 
   Typing.prototype._maybeComplete = function () {

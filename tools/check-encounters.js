@@ -214,6 +214,44 @@ if (wpmArg) {
   Object.keys(counts).sort((a, b) => counts[b] - counts[a]).forEach(k => {
     console.log(`  ${k.padEnd(9)} ${String(counts[k]).padStart(5)}  ${(100 * counts[k] / chambers).toFixed(1)}%`);
   });
+  /* Targeting is by first letter, so two specimens standing in the same room
+   * offering the same initial is a bug the player experiences as the game
+   * shooting the wrong thing. The planner deals every specimen an exclusive
+   * set of initials; this is the check that it actually holds, offspring
+   * included, since they inherit their dead parent's letters. */
+  let chambers2 = 0, collisions = 0, offSet = 0, kids = 0;
+  for (let seed = 0; seed < 30; seed++) {
+    for (let i = 0; i < 45; i++) {
+      const plan = D.planEncounter((seed * 7919 + 13) >>> 0, i, 1, registry);
+      chambers2++;
+      const owner = {};
+      for (const m of plan.monsters) {
+        for (const w of m.words) {
+          const c = w.charAt(0).toLowerCase();
+          if (m.letters && m.letters.indexOf(c) === -1) offSet++;
+          if (owner[c] !== undefined && owner[c] !== m.uid) collisions++;
+          owner[c] = m.uid;
+        }
+        if (!m.split) continue;
+        for (const k of D.splitSpecs(Object.assign({}, m, { atDist: m.startDist }),
+                                     9000, plan.seed, plan.difficulty)) {
+          kids++;
+          for (const w of k.words) {
+            const c = w.charAt(0).toLowerCase();
+            if (owner[c] !== undefined && owner[c] !== m.uid && owner[c] !== k.uid) collisions++;
+          }
+        }
+      }
+    }
+  }
+  console.log(`=== initials over ${chambers2} chambers (${kids} offspring) ===`);
+  console.log(`  two specimens sharing an initial : ${collisions}`);
+  console.log(`  word outside its specimen's set  : ${offSet}`);
+  if (collisions || offSet) {
+    console.error('FAIL: targeting by first letter is ambiguous in at least one chamber.');
+    process.exitCode = 1;
+  }
+
   const worst = Math.max(...drift.map(Math.abs));
   console.log(`\nword-budget drift: mean ${avg(drift).toFixed(2)}, worst ${worst} ` +
               `(offspring are charged to the parent, so this should stay near zero)`);

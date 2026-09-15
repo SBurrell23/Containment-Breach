@@ -168,6 +168,7 @@
     this.bSize = new Float32Array(n);
     this.bLife = new Float32Array(n);
     this.bMax = new Float32Array(n);
+    this.bGrav = new Float32Array(n);
     this.bCursor = 0;
     for (var i = 0; i < n; i++) this.bPos[i * 3 + 1] = -9999;
 
@@ -251,6 +252,42 @@
       this.bAlpha[idx] = 1;
       this.bMax[idx] = life * (0.55 + Math.random() * 0.9);
       this.bLife[idx] = this.bMax[idx];
+      this.bGrav[idx] = 16;
+    }
+  };
+
+  /* Steam, on the same droplet system.
+   *
+   * It belongs here rather than on the additive burst() for one reason: point
+   * size. burst() has a single global size, and a vent puff comes out a hand's
+   * width from the camera, where a fixed-size point is drawn sixty pixels
+   * across and reads as a white card. The droplet system carries a size per
+   * particle, so a close puff can be made of small wisps.
+   *
+   * Negative gravity, because steam goes up. */
+  Effects.prototype.steam = function (pos, count, speed, life, size) {
+    var density = S().getNum('particles');
+    count = Math.max(1, Math.round(count * density));
+    for (var i = 0; i < count; i++) {
+      var idx = this.bCursor;
+      this.bCursor = (this.bCursor + 1) % MAX_BLOOD;
+      var o = idx * 3;
+      this.bPos[o] = pos.x + (Math.random() - 0.5) * 0.06;
+      this.bPos[o + 1] = pos.y + (Math.random() - 0.5) * 0.06;
+      this.bPos[o + 2] = pos.z + (Math.random() - 0.5) * 0.06;
+      var th = Math.random() * Math.PI * 2;
+      var ph = Math.acos(2 * Math.random() - 1);
+      var sp = speed * (0.3 + Math.random());
+      this.bVel[o] = Math.sin(ph) * Math.cos(th) * sp;
+      this.bVel[o + 1] = Math.abs(Math.cos(ph)) * sp * 0.6 + speed * 0.3;
+      this.bVel[o + 2] = Math.sin(ph) * Math.sin(th) * sp;
+      var g = 0.55 + Math.random() * 0.35;
+      this.bCol[o] = g; this.bCol[o + 1] = g * 0.96; this.bCol[o + 2] = g * 0.9;
+      this.bSize[idx] = size * (0.6 + Math.random() * 0.9);
+      this.bAlpha[idx] = 1;
+      this.bMax[idx] = life * (0.6 + Math.random() * 0.8);
+      this.bLife[idx] = this.bMax[idx];
+      this.bGrav[idx] = -2.4;
     }
   };
 
@@ -494,6 +531,110 @@
 
   var WEAPON_HOME = { x: 0.30, y: -0.30, z: -1.15 };
 
+  /* Set to false to take the hazmat arms back off.
+   *
+   * Everything they add is built in _buildArm() and parented to the rifle
+   * group, and nothing else in the codebase refers to them — so flipping this
+   * one flag is the entire revert, with no loose ends to chase. */
+  var SHOW_ARMS = true;
+
+  /* Which way the arm swings away from the grip. See buildArm. */
+  var ARM_LEAN = -1;
+
+  /* A limb between two points, as a tapered cylinder. Placing these by euler
+   * angles is guesswork; giving the two joint positions and letting the
+   * quaternion fall out of the direction is not. */
+  var _limbA = new THREE.Vector3(), _limbB = new THREE.Vector3();
+  var _limbDir = new THREE.Vector3(), _limbUp = new THREE.Vector3(0, 1, 0);
+
+  function limb(dis, mat, a, b, rTop, rBottom) {
+    _limbA.fromArray(a); _limbB.fromArray(b);
+    _limbDir.subVectors(_limbB, _limbA);
+    var len = _limbDir.length();
+    var geo = new THREE.CylinderGeometry(rTop, rBottom, len, 9, 1);
+    dis.push(geo);
+    var m = new THREE.Mesh(geo, mat);
+    m.position.copy(_limbA).addScaledVector(_limbDir, 0.5);
+    m.quaternion.setFromUnitVectors(_limbUp, _limbDir.normalize());
+    m.userData.noShadow = true;
+    return m;
+  }
+
+  /* The arm holding it. Parented to the rifle group, so it inherits every bit
+   * of sway, kick and repositioning the weapon already does and cannot drift
+   * away from the grip.
+   *
+   * It runs from the grip down and outboard to a shoulder behind the camera,
+   * which is what keeps it out of the middle of the screen: the weapon already
+   * sits off-centre, and the arm only ever travels further that way. */
+  function buildArm(dis, side) {
+    var g = new THREE.Group();
+
+    var suit = CT.detailMat(new THREE.MeshStandardMaterial({
+      color: 0xb7972a, roughness: 0.78, metalness: 0.03
+    }), 'metal', 5, 0.010);
+    var glove = CT.detailMat(new THREE.MeshStandardMaterial({
+      color: 0x8a7220, roughness: 0.86, metalness: 0.02
+    }), 'hide', 6, 0.012);
+    var seal = CT.detailMat(new THREE.MeshStandardMaterial({
+      color: 0x22262a, roughness: 0.6, metalness: 0.35
+    }), 'metal', 8, 0.008);
+    dis.push(suit, glove, seal);
+
+    /* Joints, in the rifle's local space. The grip is at (0, -0.135, 0.17).
+     *
+     * ARM_LEAN is which way the elbow and shoulder swing away from the grip:
+     * -1 takes them across the body toward the middle of the screen, +1 takes
+     * them out toward the shoulder on the weapon's own side. One character to
+     * change your mind. */
+    var lean = side * ARM_LEAN;
+    var wrist = [0.012 * lean, -0.20, 0.27];
+    var elbow = [0.17 * lean, -0.44, 0.60];
+    var shoulder = [0.35 * lean, -0.66, 0.86];
+
+    g.add(limb(dis, suit, elbow, wrist, 0.050, 0.064));       // forearm
+    g.add(limb(dis, suit, shoulder, elbow, 0.066, 0.082));    // upper arm
+
+    // Elbow, so the two tubes do not read as a hinge made of nothing.
+    var elbowGeo = new THREE.SphereGeometry(0.066, 9, 7);
+    dis.push(elbowGeo);
+    var eb = new THREE.Mesh(elbowGeo, suit);
+    eb.position.fromArray(elbow);
+    eb.userData.noShadow = true;
+    g.add(eb);
+
+    // The cuff seal, which is the detail that says hazmat rather than sleeve.
+    var cuffGeo = new THREE.CylinderGeometry(0.062, 0.058, 0.055, 10);
+    dis.push(cuffGeo);
+    var cuff = new THREE.Mesh(cuffGeo, seal);
+    cuff.position.set(wrist[0], wrist[1], wrist[2]);
+    cuff.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(elbow[0] - wrist[0], elbow[1] - wrist[1], elbow[2] - wrist[2]).normalize());
+    cuff.userData.noShadow = true;
+    g.add(cuff);
+
+    // The hand, wrapped around the grip and canted with it.
+    var handGeo = new THREE.BoxGeometry(0.086, 0.115, 0.10);
+    dis.push(handGeo);
+    var hand = new THREE.Mesh(handGeo, glove);
+    hand.position.set(0.004 * lean, -0.148, 0.185);
+    hand.rotation.set(0.26, 0, 0);
+    hand.userData.noShadow = true;
+    g.add(hand);
+
+    // Thumb, laid along the top of the grip.
+    var thumbGeo = new THREE.CylinderGeometry(0.019, 0.017, 0.085, 7);
+    dis.push(thumbGeo);
+    var thumb = new THREE.Mesh(thumbGeo, glove);
+    thumb.position.set(-0.038 * lean, -0.108, 0.155);
+    thumb.rotation.set(1.15, 0, 0.5 * lean);
+    thumb.userData.noShadow = true;
+    g.add(thumb);
+
+    return g;
+  }
+
   /* Builds one rifle. `side` is +1 for the right of the screen, -1 for the
    * left; the model is near-symmetric so mirroring the pose is enough, and it
    * avoids a negative scale (which would invert every normal). */
@@ -529,10 +670,33 @@
     group.add(part(new THREE.CylinderGeometry(0.05, 0.047, 0.085, 8), steel, 0, -0.008, -0.78, Math.PI / 2)); // brake
     group.add(part(new THREE.BoxGeometry(0.065, 0.17, 0.075), polymer, 0, -0.135, 0.17, 0.26));        // grip
     group.add(part(new THREE.CylinderGeometry(0.042, 0.042, 0.22, 8), steel, 0, -0.12, -0.02, 0.2));   // reagent canister
-    // The charge cell is the only lit element, and it carries the player colour
-    // so the two rifles are told apart at a glance.
-    group.add(part(new THREE.BoxGeometry(0.018, 0.045, 0.21), cellMat, -0.062, 0.012, -0.05));
-    group.add(part(new THREE.BoxGeometry(0.018, 0.045, 0.21), cellMat, 0.062, 0.012, -0.05));
+    /* The heat gauge, one down each flank of the receiver.
+     *
+     * A dark channel with a lit bar inside it that grows from the back as the
+     * weapon heats. The bar geometry is shifted so its origin is its rear face,
+     * which is what lets a plain scale on z read as a bar filling rather than
+     * as a block growing out of its own middle.
+     *
+     * It is also the player-colour tell in co-op, so it runs from the player's
+     * own colour when cold through amber to red at the point of venting. */
+    var GAUGE_LEN = 0.40;
+    var channelMat = CT.detailMat(new THREE.MeshStandardMaterial({
+      color: 0x0c0e10, roughness: 0.75, metalness: 0.3
+    }), 'metal', 8, 0.006);
+    dis.push(channelMat);
+    var fills = [];
+    for (var gi = 0; gi < 2; gi++) {
+      var gx = gi ? 0.064 : -0.064;
+      group.add(part(new THREE.BoxGeometry(0.024, 0.056, GAUGE_LEN), channelMat, gx, 0.012, -0.06));
+      var fillGeo = new THREE.BoxGeometry(0.030, 0.040, GAUGE_LEN);
+      fillGeo.translate(0, 0, GAUGE_LEN / 2);      // origin at the rear face
+      dis.push(fillGeo);
+      var fill = new THREE.Mesh(fillGeo, cellMat);
+      fill.position.set(gx, 0.012, -0.06 - GAUGE_LEN / 2);
+      fill.userData.noShadow = true;
+      group.add(fill);
+      fills.push(fill);
+    }
 
     // Muzzle anchor rides on the weapon, so the flash stays attached to the
     // brake however the viewmodel is repositioned for the window shape.
@@ -564,6 +728,8 @@
     group.add(flash);
     dis.push(flashMat);
 
+    if (SHOW_ARMS) group.add(buildArm(dis, side));
+
     group.position.set(WEAPON_HOME.x * side, WEAPON_HOME.y, WEAPON_HOME.z);
     group.rotation.set(0.03, -0.055 * side, 0.02 * side);
     this.stage.camera.add(group);
@@ -572,6 +738,8 @@
       side: side, group: group, anchor: anchor, port: port,
       flash: flash, flashMat: flashMat, flashLife: 0,
       cell: cellMat, kick: 0, dis: dis,
+      fills: fills, gaugeLen: GAUGE_LEN, coldColor: new THREE.Color(cellColor),
+      heat: 0, venting: 0,
       aspectX: WEAPON_HOME.x * side, aspectY: WEAPON_HOME.y
     };
   };
@@ -804,13 +972,15 @@
       bl[b] -= dt;
       var bo = b * 3;
       if (bl[b] <= 0) { bp[bo + 1] = -9999; ba[b] = 0; continue; }
-      bv[bo + 1] -= 16 * dt;                       // heavier than sparks
-      var bd = Math.exp(-1.1 * dt);
+      var grav = this.bGrav[b];
+      bv[bo + 1] -= grav * dt;                     // blood is heavy, steam rises
+      var bd = Math.exp((grav < 0 ? -2.6 : -1.1) * dt);
       bv[bo] *= bd; bv[bo + 2] *= bd;
+      if (grav < 0) bv[bo + 1] *= bd;
       bp[bo] += bv[bo] * dt;
       bp[bo + 1] += bv[bo + 1] * dt;
       bp[bo + 2] += bv[bo + 2] * dt;
-      if (bp[bo + 1] < 0.02) {
+      if (grav > 0 && bp[bo + 1] < 0.02) {
         // Lands and stays landed rather than bouncing like a spark. Blood that
         // ricochets looks like gravel.
         bp[bo + 1] = 0.02;
@@ -892,9 +1062,82 @@
         r.aspectY - k2 * 0.014 + Math.sin(time * 1.7 + wi) * 0.005,
         WEAPON_HOME.z + k2 * 0.10
       );
-      r.group.rotation.x = 0.03 + k2 * 0.26;
+      r.group.rotation.x = 0.03 + k2 * 0.26 + r.venting * 0.20;
       r.group.rotation.z = (0.02 + Math.sin(time * 1.3 + wi) * 0.01) * r.side;
-      r.cell.emissiveIntensity = 0.7 + Math.sin(time * 6 + wi) * 0.22 + k2 * 2.2;
+    }
+    this._updateHeat(dt, time);
+  };
+
+  /* ---- overheat ----------------------------------------------------------
+   *
+   * The gauge and the venting animation. The heat VALUE lives on the player in
+   * js/game.js, because it is a rule of the game rather than a property of the
+   * model; this only draws it. */
+
+  var HOT_MID = new THREE.Color(0xff8c06);
+  // Full red, not a dark one: the gauge is small and a hand's width from the
+  // camera, and the whole job of the top of the bar is to be unmissable.
+  var HOT_MAX = new THREE.Color(0xff0a00);
+  var _heatCol = new THREE.Color();
+
+  Effects.prototype.setHeat = function (slot, heat, locked) {
+    var r = this.rifles[slot];
+    if (!r) return;
+    r.heat = CT.clamp(heat, 0, 1);
+    r.locked = !!locked;
+  };
+
+  /* Called once when a weapon actually blows, for the one-off part: the kick,
+   * the vent puff and the noise. */
+  Effects.prototype.vent = function (slot) {
+    var r = this.rifles[slot];
+    if (!r) return;
+    r.venting = 1;
+    r.kick = Math.max(r.kick, 1.6);
+    // Small wisps, because the breach is right under the camera. The additive
+    // burst() used for impacts is the wrong tool here: at this range its fixed
+    // point size covers a quarter of the screen.
+    var p = new THREE.Vector3();
+    r.port.getWorldPosition(p);
+    this.steam(p, 30, 1.1, 0.75, 0.055);
+    r.anchor.getWorldPosition(p);
+    this.steam(p, 14, 0.8, 0.6, 0.05);
+  };
+
+  Effects.prototype._updateHeat = function (dt, time) {
+    for (var i = 0; i < this.rifles.length; i++) {
+      var r = this.rifles[i];
+      if (r.venting > 0) r.venting = Math.max(0, r.venting - dt * 1.6);
+      if (!r.group.visible) continue;
+
+      // The bar fills from the back. A floor of 4% keeps a sliver lit at zero
+      // heat, so the gauge still reads as a gauge rather than as an empty slot.
+      var shown = 0.04 + r.heat * 0.96;
+      for (var f = 0; f < r.fills.length; f++) r.fills[f].scale.z = shown;
+
+      // Player colour when cold, amber through the middle, red at the top.
+      if (r.heat < 0.5) _heatCol.copy(r.coldColor).lerp(HOT_MID, r.heat / 0.5);
+      else _heatCol.copy(HOT_MID).lerp(HOT_MAX, (r.heat - 0.5) / 0.5);
+
+      var pulse = 0.7 + Math.sin(time * 6 + i) * 0.22 + r.kick * r.kick * 2.2;
+      if (r.locked) {
+        // Hard strobe while it is actually locked out, so the reason the rifle
+        // is not firing is never a mystery.
+        _heatCol.copy(HOT_MAX);
+        pulse = 4.2 + Math.sin(time * 34) * 3.2;
+      } else if (r.heat > 0.72) {
+        // A warning flicker before it goes, proportional to how close it is.
+        pulse += (r.heat - 0.72) / 0.28 * (1.6 + Math.sin(time * 19) * 1.4);
+      }
+      pulse += r.venting * 3.0;
+
+      r.cell.color.copy(_heatCol).multiplyScalar(0.18);
+      r.cell.emissive.copy(_heatCol);
+      // Emissive alone is tone-mapped down with everything else; letting the
+      // gauge opt out is what keeps a hot bar reading as hot rather than as a
+      // slightly warmer grey.
+      r.cell.toneMapped = r.heat < 0.55;
+      r.cell.emissiveIntensity = pulse;
     }
   };
 

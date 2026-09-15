@@ -49,11 +49,17 @@
         <div id="typebar-word"></div>
         <div id="typebar-hint">type a word above a specimen to fire</div>
       </div>
-      <div id="perf">
-        <span id="wpm-readout"></span>
-        <span id="net-readout"></span>
-        <span id="fps-readout"></span>
-      </div>
+    </div>
+
+    <!-- Pinned to the corner rather than sat under the type bar: WPM and
+         accuracy already live in the player card, and repeating them under the
+         word the player is reading put moving numbers right where their eyes
+         are. What is left is diagnostics, which belong out of the way. -->
+    <div id="perf">
+      <span id="fps-readout"></span>
+      <span id="draw-readout"></span>
+      <span id="poly-readout"></span>
+      <span id="net-readout"></span>
     </div>
 
     <div id="toast"></div>

@@ -383,6 +383,37 @@
     return this.renderer.info.programs ? this.renderer.info.programs.length : 0;
   };
 
+  /* The menu's cave is lit several stops brighter than the game's.
+   *
+   * In play the darkness is the point — you see what the lamp finds and nothing
+   * else. Behind a menu that reads as a black screen with a faint smudge on it,
+   * because the player is looking at a panel and not down the tunnel. So the
+   * attract mode gets its own exposure, and the run puts it straight back. */
+  Stage.prototype.setPresentationLight = function (on) {
+    if (this._presenting === !!on) return;
+    this._presenting = !!on;
+    if (on) {
+      this._lampWas = this.lampBase;
+      this._ambWas = this.ambient.intensity;
+      this._hemiWas = this.hemi.intensity;
+      this.lampBase = this._lampWas * 2.4;
+      this.ambient.intensity = this._ambWas * 2.3;
+      this.hemi.intensity = this._hemiWas * 2.6;
+    } else {
+      if (this._lampWas !== undefined) this.lampBase = this._lampWas;
+      if (this._ambWas !== undefined) this.ambient.intensity = this._ambWas;
+      if (this._hemiWas !== undefined) this.hemi.intensity = this._hemiWas;
+    }
+  };
+
+  /* Points the camera, for the menu's slow drift. During a run the aim is owned
+   * by the player's targeting, which is why this is a plain setter rather than
+   * anything that fights with it. */
+  Stage.prototype.setLook = function (x, y) {
+    this._lookTarget.x = x;
+    this._lookTarget.y = y;
+  };
+
   Stage.prototype.render = function () {
     this.renderer.render(this.scene, this.camera);
   };

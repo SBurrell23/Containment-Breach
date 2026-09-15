@@ -286,9 +286,12 @@ body.is-p2 #typebar-word b { color: var(--p2); }
 #typebar.active #typebar-hint { opacity: 0; }
 
 #perf {
-  display: flex; gap: 16px; font-size: 10px; letter-spacing: 1.6px;
-  color: var(--ink-dim); min-height: 12px; font-variant-numeric: tabular-nums;
+  position: absolute; right: 12px; bottom: 8px; z-index: 2;
+  display: flex; gap: 12px; font-size: 9px; letter-spacing: 1.4px;
+  color: var(--ink-dim); opacity: 0.55; pointer-events: none;
+  font-variant-numeric: tabular-nums;
 }
+@media (max-width: 620px) { #perf { font-size: 8px; gap: 8px; right: 8px; } }
 
 #toast {
   position: absolute; left: 50%; top: 27%; transform: translateX(-50%);
@@ -314,6 +317,17 @@ body.is-p2 #typebar-word b { color: var(--p2); }
   background: radial-gradient(ellipse at center, rgba(4,7,10,0.955), rgba(1,2,4,0.995));
   backdrop-filter: blur(6px);
 }
+/* The title screen is the exception to the scrim above. Its panel carries its
+   own background, so the surround can be thin enough to show the cave drifting
+   along behind it — which is the first thing the game says about itself. Every
+   other screen keeps the near-opaque version, because a settings row or a stats
+   table read over a moving cave is genuinely hard to read. */
+#screen-title {
+  background:
+    radial-gradient(ellipse at center, rgba(4,7,10,0.18) 30%, rgba(1,2,4,0.72) 100%);
+  backdrop-filter: blur(1.5px);
+}
+
 .screen.active { display: flex; animation: fadeIn 0.22s ease-out; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 

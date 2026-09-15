@@ -86,6 +86,8 @@
         name: opts.names && opts.names[i] ? opts.names[i] : (i === 0 ? 'PLAYER 1' : 'PLAYER 2'),
         hp: D().TUNING.playerMaxHp,
         maxHp: D().TUNING.playerMaxHp,
+        heat: 0,
+        lockout: 0,
         down: false,
         bleed: 0,
         wpm: 0,
@@ -96,6 +98,9 @@
       });
     }
 
+    this.attract = false;
+    this.stage.setPresentationLight(false);
+    this.stage.setLook(0, 0);
     if (this.cave) this.cave.dispose();
     this.cave = new CT.Cave(this.stage, this.runSeed);
 
@@ -161,6 +166,9 @@
   Game.prototype.quit = function () {
     this.state = 'idle';
     this.clearMonsters();
+    // Back to the menu, so back to a cave behind it — a new one, since the
+    // point of it is that it is different every time.
+    this.startAttract();
     this.labels.clear();
     this.hud.show(false);
     this.hud.setBoss(null);
@@ -193,6 +201,54 @@
       console.log('[warm] ' + kept + ' permutations, ' + programs + ' programs, ' +
                   Math.round(performance.now() - t0) + 'ms');
     }
+  };
+
+  /* ---- the menu cave -------------------------------------------------------
+   *
+   * A real, freshly generated cave behind the title screen, drifting slowly
+   * forward, instead of a flat black canvas. It is the same Cave class the run
+   * uses, on its own seed, so the menu shows off the thing the player is about
+   * to descend into and shows a different one every time they come back to it.
+   *
+   * Cheap on purpose: no specimens, no dust of its own beyond what the cave
+   * builds, a short stream distance and no weapon. It is disposed the moment a
+   * run starts, which is also when startRun would rebuild it anyway. */
+  Game.prototype.startAttract = function () {
+    if (this.state !== 'idle') return;
+    this.stopAttract();
+    var seed = (Math.random() * 0xffffffff) >>> 0;
+    this.cave = new CT.Cave(this.stage, seed);
+    this.stationS = 12;
+    this.placeRig(0);
+    this.cave.streamTo(this.stationS + 40);
+    this.cave.drain();
+    this.attract = true;
+    this.effects.setWeaponVisible(false);
+    this.hud.show(false);
+    this.stage.setPresentationLight(true);
+  };
+
+  Game.prototype.stopAttract = function () {
+    this.attract = false;
+    this.stage.setPresentationLight(false);
+    // The menu drift leaves the camera pointed wherever it got to. Targeting
+    // owns the aim during a run, but only once there is something to aim at —
+    // so hand it back level rather than mid-wander.
+    this.stage.setLook(0, 0);
+    if (this.cave) { this.cave.dispose(); this.cave = null; }
+  };
+
+  /* Drifts the rig down the tunnel. Called from the frame loop while the menus
+   * are up, in place of the full simulation. */
+  Game.prototype.updateAttract = function (dt, time) {
+    if (!this.attract || !this.cave) return;
+    this.time += dt;
+    this.stationS += dt * 2.6;
+    // A slow wander so it does not read as a dolly on rails.
+    this.placeRig(Math.sin(this.time * 0.11) * 0.08);
+    this.stage.setLook(Math.sin(this.time * 0.07) * 0.10, Math.sin(this.time * 0.05) * 0.04);
+    this.cave.streamTo(this.stationS + 40);
+    this.cave.update(dt, time, this.stationS);
   };
 
   /* ---- encounters -------------------------------------------------------- */
@@ -392,6 +448,7 @@
       attackInterval: spec.attackInterval,
       scale: spec.scale || 1,
       words: spec.words,
+      letters: spec.letters,
       split: spec.split
     }, this._nextUid, this.encounterSeed, this._plan ? this._plan.difficulty : 0);
 
@@ -562,7 +619,80 @@
       // fall through: they may have meant to shoot something
     }
 
-    this.typing.key(ch, this.monsters, this.mySlot);
+    /* The rifle will not fire while it is venting. Returning here rather than
+     * inside Typing means a locked-out keystroke does not even count as a
+     * mistype: the punishment is the lockout, not more heat on top of it. */
+    if (me.lockout > 0) {
+      CT.Audio.overheatDenied();
+      return;
+    }
+
+    var result = this.typing.key(ch, this.monsters, this.mySlot);
+    // 'miss' is a key that matched nothing on screen; 'bad' is a wrong letter
+    // against the word already being typed. Both are characters that are not
+    // on any word, which is exactly what heats the barrel.
+    if (result === 'miss' || result === 'bad') this.addHeat(this.mySlot);
+  };
+
+  /* ---- weapon heat --------------------------------------------------------
+   *
+   * Mistyping is otherwise almost free — a wrong key costs a fraction of a
+   * second and nothing else — which makes mashing a letter until something
+   * locks on a better strategy than reading. Heat prices that in: stray
+   * characters fill the gauge, the gauge bleeds off on its own, and filling it
+   * vents the weapon and stops it firing for a moment. */
+
+  Game.prototype.addHeat = function (slot) {
+    var p = this.players[slot];
+    if (!p || p.lockout > 0) return;
+    var T = D().TUNING;
+    p.heat += T.heatPerMiss;
+    if (p.heat >= 1) {
+      p.heat = 1;
+      p.lockout = T.heatLockout;
+      this.effects.vent(slot);
+      if (slot === this.mySlot) {
+        this.typing.release();
+        this.hud.say('WEAPON OVERHEAT', true, 1100);
+        this.stage.addShake(0.45);
+        CT.Audio.overheat();
+      }
+      if (this.net.isMultiplayer()) this.net.send({ t: 'heat', slot: slot, v: 1, lock: 1 });
+    }
+  };
+
+  Game.prototype.updateHeat = function (dt) {
+    var T = D().TUNING;
+    for (var i = 0; i < this.players.length; i++) {
+      var p = this.players[i];
+      if (p.lockout > 0) {
+        p.lockout = Math.max(0, p.lockout - dt);
+        if (p.lockout === 0) {
+          p.heat = T.heatAfterVent;
+          if (i === this.mySlot) CT.Audio.overheatClear();
+        }
+      } else if (p.heat > 0) {
+        p.heat = Math.max(0, p.heat - T.heatCool * dt);
+      }
+      this.effects.setHeat(i, p.heat, p.lockout > 0);
+    }
+
+    // The partner's gauge is on screen in co-op, so tell them about ours. Rate
+    // limited: it is a cosmetic readout, not something the rules depend on.
+    if (this.net.isMultiplayer()) {
+      this._heatT = (this._heatT || 0) + dt;
+      var me = this.players[this.mySlot];
+      if (me && this._heatT > 0.2 && Math.abs(me.heat - (this._heatSent || 0)) > 0.04) {
+        this._heatT = 0;
+        this._heatSent = me.heat;
+        this.net.send({ t: 'heat', slot: this.mySlot, v: me.heat, lock: me.lockout > 0 ? 1 : 0 });
+      }
+    }
+  };
+
+  Game.prototype.heatFrac = function () {
+    var p = this.players[this.mySlot];
+    return p ? p.heat : 0;
   };
 
   Game.prototype.handleBackspace = function () {
@@ -608,6 +738,7 @@
 
     this.updateMonsters(dt);
     this.updateBleedout(dt);
+    this.updateHeat(dt);
 
     if (st === 'combat' && this.net.isHost() && this.aliveCount() === 0 && this.monsters.length) {
       this.encounterCleared();
@@ -921,6 +1052,14 @@
         m.claim[0] = m.claim[1] = null;
       }
       self.typing.validate();
+    });
+
+    net.on('heat', function (msg) {
+      var p = self.players[msg.slot];
+      if (!p || msg.slot === self.mySlot) return;
+      p.heat = msg.v;
+      p.lockout = msg.lock ? Math.max(p.lockout, 0.4) : 0;
+      if (msg.lock) self.effects.vent(msg.slot);
     });
 
     net.on('spawn', function (msg) {

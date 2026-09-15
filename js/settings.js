@@ -41,12 +41,12 @@
       items: [
         { key: 'masterVolume', label: 'Master Volume', type: 'range', def: 0.8,
           min: 0, max: 1, step: 0.05, fmt: function (v) { return Math.round(v * 100) + '%'; } },
-        { key: 'sfxVolume', label: 'Weapon / Monster SFX', type: 'range', def: 0.9,
+        { key: 'sfxVolume', label: 'Weapon / Monster SFX', type: 'range', def: 0.7,
           min: 0, max: 1, step: 0.05, fmt: function (v) { return Math.round(v * 100) + '%'; } },
-        { key: 'ambienceVolume', label: 'Cave Ambience', type: 'range', def: 0.5,
+        { key: 'ambienceVolume', label: 'Cave Ambience', type: 'range', def: 0.6,
           min: 0, max: 1, step: 0.05, fmt: function (v) { return Math.round(v * 100) + '%'; },
           hint: 'The dripping, echoing bed the whole cave sits on.' },
-        { key: 'musicVolume', label: 'Music', type: 'range', def: 0.4,
+        { key: 'musicVolume', label: 'Music', type: 'range', def: 0.7,
           min: 0, max: 1, step: 0.05, fmt: function (v) { return Math.round(v * 100) + '%'; },
           hint: 'The scored loop, mixed to sit behind the rifle and the specimens.' },
         { key: 'keyClicks', label: 'Keystroke Clicks', type: 'toggle', def: true }
@@ -83,10 +83,16 @@
    * changed default would only ever reach people who had never opened the
    * options screen. Each migration only rewrites a value that is still sitting
    * on the old default, so a deliberate choice is left alone. */
-  var SCHEMA_VERSION = 2;
+  var SCHEMA_VERSION = 3;
   var MIGRATIONS = {
     // v2: the frame cap defaults to 120 rather than unlimited.
-    2: function (p) { if (p.fpsCap === '0') p.fpsCap = '120'; }
+    2: function (p) { if (p.fpsCap === '0') p.fpsCap = '120'; },
+    // v3: new mix. Music up, ambience up, weapon and specimen effects down.
+    3: function (p) {
+      if (p.musicVolume === 0.4) p.musicVolume = 0.7;
+      if (p.ambienceVolume === 0.5) p.ambienceVolume = 0.6;
+      if (p.sfxVolume === 0.9) p.sfxVolume = 0.7;
+    }
   };
 
   var listeners = [];

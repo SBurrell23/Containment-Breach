@@ -226,9 +226,10 @@
     this.players = $('players');
     this.typebar = $('typebar');
     this.typebarWord = $('typebar-word');
-    this.wpm = $('wpm-readout');
     this.net = $('net-readout');
     this.fps = $('fps-readout');
+    this.draw = $('draw-readout');
+    this.poly = $('poly-readout');
     this.toast = $('toast');
     this.flash = $('damage-flash');
     this.cards = [];
@@ -321,11 +322,13 @@
     document.body.classList.toggle('is-p2', slot === 1);
   };
 
-  Hud.prototype.setPerf = function (wpm, acc, fps, latency) {
-    this.wpm.textContent = S().get('showWpm')
-      ? Math.round(wpm) + ' WPM  ·  ' + Math.round(acc * 100) + '% ACC'
-      : '';
+  /* Renderer diagnostics, bottom right. WPM and accuracy are not here any
+   * more — the player card carries them, and a second copy under the type bar
+   * was two moving numbers in the middle of where the player is reading. */
+  Hud.prototype.setPerf = function (fps, calls, tris, latency) {
     this.fps.textContent = fps ? Math.round(fps) + ' FPS' : '';
+    this.draw.textContent = calls ? calls + ' DRAW' : '';
+    this.poly.textContent = tris ? Math.round(tris / 1000) + 'K TRI' : '';
     this.net.textContent = latency ? Math.round(latency) + ' MS' : '';
   };
 

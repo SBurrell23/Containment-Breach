@@ -405,6 +405,29 @@
       o.stop(ctx.currentTime + 1.3); lfo.stop(ctx.currentTime + 1.3);
     },
 
+    /* The rifle vents: a pressure release, then the metal ringing down. */
+    overheat: function () {
+      if (!ctx || !enabled) return;
+      noise(busSfx, 0.85, 0.5, 'highpass', 2600, 700, 0.8);
+      noise(busSfx, 0.45, 0.32, 'bandpass', 1400, 400, 1.2);
+      tone(busSfx, 'sawtooth', 220, 60, 0.5, 0.18);
+      tone(busSfx, 'sine', 90, 55, 0.7, 0.3);
+    },
+
+    /* A dead click on a key that the locked-out rifle refused. */
+    overheatDenied: function () {
+      if (!ctx || !enabled) return;
+      noise(busSfx, 0.045, 0.18, 'bandpass', 1800, 600, 2.2);
+      tone(busSfx, 'square', 140, 90, 0.035, 0.07);
+    },
+
+    /* Back in service. */
+    overheatClear: function () {
+      if (!ctx || !enabled) return;
+      tone(busSfx, 'triangle', 420, 760, 0.12, 0.2);
+      tone(busSfx, 'sine', 700, 980, 0.09, 0.12, 0.06);
+    },
+
     /* the player takes damage */
     playerHurt: function () {
       if (!ctx || !enabled) return;

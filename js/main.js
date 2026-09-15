@@ -62,6 +62,7 @@
     }
 
     game.onGameOver = showGameOver;
+    game.startAttract();
     wireMenus();
     wireInput();
     wireNetUi();
@@ -123,11 +124,15 @@
     if (game && game.state !== 'idle' && simulate) {
       try { game.update(dt); }
       catch (e) { fatal('Simulation error:\n' + (e && e.stack || e)); running = false; return; }
+    } else if (game && game.state === 'idle') {
+      try { game.updateAttract(dt, now / 1000); }
+      catch (e2) { game.stopAttract(); }
     }
 
     if (game) {
+      var info = stage.renderer.info.render;
       game.hud.setPerf(
-        game.typing.wpm(), game.typing.accuracy(), fpsAvg,
+        fpsAvg, info.calls, info.triangles,
         game.net.isMultiplayer() ? game.net.latency : 0
       );
     }

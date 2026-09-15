@@ -101,6 +101,24 @@
     // creatures; these make them read at gameplay distance.
     tierScale: { grunt: 1.55, mid: 1.15, boss: 1.0 },
 
+    /* Weapon heat.
+     *
+     * Every character that does not belong to any word on screen puts heat into
+     * the rifle, and heat bleeds off on its own. Fill the gauge and the weapon
+     * vents and will not fire until it has cooled.
+     *
+     * The numbers are set so that a clean typist never sees it: eight stray
+     * characters inside a couple of seconds is the threshold, and at
+     * heatCool the gauge empties from full in about four seconds. It is a
+     * brake on mashing the keyboard when a word will not come, not a tax on
+     * ordinary mistakes. */
+    heatPerMiss: 0.125,
+    heatCool: 0.26,
+    heatLockout: 1.75,
+    // Heat left in the barrel once the lockout ends, so a player who goes
+    // straight back to mashing gets there again quickly.
+    heatAfterVent: 0.3,
+
     // Scoring.
     scorePerWord: 10,
     scorePerKill: 50,
@@ -284,6 +302,36 @@
     return open.length ? rng.pick(open) : null;
   }
 
+  /* Splits the alphabet between the specimens in a chamber, so no two of them
+   * can ever offer the same initial.
+   *
+   * Targeting is by first letter, and ties go to whichever specimen is nearest
+   * the crosshair — so two specimens both showing a word starting with "s"
+   * meant the player could not choose between them and the shot went somewhere
+   * they did not intend. Words advance independently as each specimen takes
+   * hits, so no amount of care at word-generation time can keep the CURRENT
+   * words apart; the initial has to belong to the specimen.
+   *
+   * Well-stocked letters are dealt first, one per specimen, and the thin end of
+   * the alphabet is only reached once everybody already has a usable one. */
+  function dealLetters(rng, count) {
+    var ranked = (CT.Words && CT.Words.letterRanking)
+      ? CT.Words.letterRanking().slice()
+      : 'stcapbdmrfheginolvwuyqjkxz'.split('');
+    var head = ranked.slice(0, count);
+    var tail = ranked.slice(count);
+    rng.shuffle(head);
+    rng.shuffle(tail);
+
+    var out = [];
+    var i;
+    for (i = 0; i < count; i++) out.push([head[i % head.length]]);
+    // Anything left over is spread around as a second and third option, so a
+    // specimen is not stuck showing words from one initial all fight.
+    for (i = 0; i < tail.length; i++) out[i % count].push(tail[i]);
+    return out;
+  }
+
   /* ---- encounter planning ------------------------------------------------ */
 
   /* Returns a fully-specified encounter. Deterministic in (runSeed, index,
@@ -333,6 +381,7 @@
      * trait pulls that earlier or pushes it later. */
     function makeSpec(type, words, opts) {
       var tr = traitsFor(type.id);
+      var letters = opts.letters || null;
       var melee = (opts.boss ? TUNING.bossMeleeDist : TUNING.meleeDist) * tr.reach;
       var dist = opts.dist;
       // Clamped once, after the traits, not before and after. Clamping the
@@ -353,7 +402,8 @@
         speed: CT.clamp(base * tr.speed * (opts.boss ? 1 : speedNorm),
                         TUNING.minSpeed, TUNING.maxSpeed),   // the only clamp
         meleeDist: melee,
-        words: CT.Words.makeSet(rng, words, diff, !!opts.boss),
+        letters: letters,
+        words: CT.Words.makeSet(rng, words, diff, !!opts.boss, letters),
         damage: attackDamage(index, !!opts.boss) * tr.damage,
         attackInterval: TUNING.attackInterval * tr.interval *
                         (opts.boss ? TUNING.bossAttackIntervalMul : 1),
@@ -402,8 +452,13 @@
       var bossWords = Math.round(totalWords * TUNING.bossWordShare);
       var bt = pickType('boss');
       var bossDist = TUNING.spawnDistMax + 9;
+      var bossAddCount = Math.max(3, Math.round(monsterCount(index, players) * 0.9));
+      // The boss and every add it ever calls in share one deal, so nothing that
+      // walks into the fight can duplicate an initial already on screen.
+      var bossLetters = dealLetters(rng, bossAddCount + 1);
       monsters.push(makeSpec(bt, bossWords, {
         boss: true,
+        letters: bossLetters[0],
         x: rng.range(-1.5, 1.5),
         dist: bossDist,
         delay: 0.9,
@@ -415,7 +470,7 @@
 
       // Adds trickle in over the fight in waves.
       var addWords = totalWords - bossWords;
-      var addCount = Math.max(3, Math.round(monsterCount(index, players) * 0.9));
+      var addCount = bossAddCount;
       var mix = tierMixFor(index);
       var addTypes = [];
       for (var a0 = 0; a0 < addCount; a0++) {
@@ -427,6 +482,7 @@
       for (var a = 0; a < addCount; a++) {
         var wave = Math.floor(a / Math.max(1, Math.ceil(addCount / TUNING.bossAddWaves)));
         monsters.push(makeSpec(addTypes[a], addShare.words[a], {
+          letters: bossLetters[a + 1],
           x: laneX(a, addCount),
           dist: rng.range(TUNING.spawnDistMin, TUNING.spawnDistMax),
           delay: 2.5 + wave * (T / (TUNING.bossAddWaves + 0.5)) + rng.range(0, 1.4),
@@ -449,6 +505,7 @@
         else types.push(pickType(rng.next() < mix2.mid ? 'mid' : 'grunt'));
       }
       normaliseSpeed(types);
+      var letterSets = dealLetters(rng, n);
       var share = shareWords(types, totalWords);
       plannedWords = share.cost;
 
@@ -474,6 +531,7 @@
         var arriveAt = T * CT.lerp(TUNING.arrivalFirst, TUNING.arrivalLast, frac);
         var delay4 = rng.range(0, Math.min(2.2, T * 0.18));
         monsters.push(makeSpec(types[i4], share.words[i4], {
+          letters: letterSets[i4],
           x: laneX(order[i4], n),
           dist: rng.range(TUNING.spawnDistMin, TUNING.spawnDistMax),
           delay: delay4,
@@ -534,7 +592,10 @@
         spawnDelay: 0.18 + i * 0.08,
         speed: CT.clamp(parent.speed * sp.speed, TUNING.minSpeed, TUNING.maxSpeed),
         meleeDist: parent.meleeDist,
-        words: CT.Words.makeSet(rng, words, difficulty || 0, false),
+        // The parent is dead, so its initials are free. Handing them straight
+        // down means the offspring cannot collide with anything still standing.
+        letters: parent.letters || null,
+        words: CT.Words.makeSet(rng, words, difficulty || 0, false, parent.letters || null),
         damage: parent.damage * (sp.damage === undefined ? 1 : sp.damage),
         attackInterval: parent.attackInterval * (sp.interval === undefined ? 1 : sp.interval),
         scale: (parent.scale || 1) * sp.scale,
